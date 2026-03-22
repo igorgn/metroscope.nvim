@@ -116,9 +116,9 @@ local function render_map(data)
       local boxes = {}
       local widths = {}
       for si, st in ipairs(line.stations) do
-        local focused = st.is_focused
-            and state.line_idx == li
-            and state.station_idx == si
+        -- Use state cursor position as the source of truth for focused,
+        -- not the server-provided is_focused (which only reflects initial cursor pos)
+        local focused = (state.line_idx == li and state.station_idx == si)
         local b, w = box(st.name, focused, st.has_cross_line)
         boxes[si] = b
         widths[si] = w
@@ -220,41 +220,42 @@ local function apply_highlights()
     vim.api.nvim_set_hl(0, hl_name, { fg = line.color, bold = true })
     vim.api.nvim_buf_add_highlight(state.buf, ns, hl_name, mid_row, 0, LABEL_W)
 
-    -- Highlight focused box (all 3 rows) and cross-line markers
+    -- Highlight focused box and cross-line markers
     for si, st in ipairs(line.stations) do
       local focused = st.is_focused and state.line_idx == li and state.station_idx == si
 
       if focused then
-        -- Highlight the ╔═╗ / ║ ║ / ╚═╝ rows
-        for row_off = 0, 2 do
-          local row = base + row_off
-          local text = vim.api.nvim_buf_get_lines(state.buf, row, row + 1, false)[1] or ""
-          -- Find the focused box by scanning for ╔ or ║ or ╚
-          local markers = { "╔", "║", "╚" }
-          local start_byte = text:find(markers[row_off + 1], 1, true)
-          if start_byte then
-            local end_byte = text:find(row_off == 1 and "║" or (row_off == 0 and "╗" or "╝"), start_byte + 3, true)
-            if end_byte then
+        -- Find the focused box by locating ╔ on the top row (unique per focused box).
+        -- Then use the same byte-column span on all 3 rows.
+        local top_text = vim.api.nvim_buf_get_lines(state.buf, base, base + 1, false)[1] or ""
+        local open_b = top_text:find("╔", 1, true)
+        if open_b then
+          local close_b = top_text:find("╗", open_b + #"╔", true)
+          if close_b then
+            local col_start = open_b - 1
+            local col_end   = close_b - 1 + #"╗"
+            for row_off = 0, 2 do
               vim.api.nvim_buf_add_highlight(
                 state.buf, ns, "MetroscopeFocusedBox",
-                row, start_byte - 1, end_byte + 2
+                base + row_off, col_start, col_end
               )
             end
           end
         end
       end
 
-      -- Highlight ⬡ cross-line symbol
+      -- Highlight ⬡ cross-line symbol (may appear multiple times per line)
       if st.has_cross_line then
-        local mid = base + 1
-        local text = vim.api.nvim_buf_get_lines(state.buf, mid, mid + 1, false)[1] or ""
-        local pos = text:find(CROSS_SYM, 1, true)
-        while pos do
+        local mid_text = vim.api.nvim_buf_get_lines(state.buf, base + 1, base + 2, false)[1] or ""
+        local pos = 1
+        while true do
+          local s = mid_text:find(CROSS_SYM, pos, true)
+          if not s then break end
           vim.api.nvim_buf_add_highlight(
             state.buf, ns, "MetroscopeCrossLine",
-            mid, pos - 1, pos - 1 + #CROSS_SYM
+            base + 1, s - 1, s - 1 + #CROSS_SYM
           )
-          pos = text:find(CROSS_SYM, pos + #CROSS_SYM, true)
+          pos = s + #CROSS_SYM
         end
       end
     end
@@ -334,40 +335,28 @@ local function close_info()
   info_win = nil
 end
 
-local function show_info()
-  local st = current_station()
-  if not st then return end
-  close_info()
-
-  local detail = fetch(config.server .. "/station/" .. st.id)
-  local connections = fetch(config.server .. "/connections?file="
-    .. vim.uri_encode(st.id:match("^(.+)::.+$") or ""))
-
+local function build_info_rows(title, summary, file_id, detail, connections)
   local W = 52
   local rows = {}
-
   local function push(s) table.insert(rows, s) end
   local function rule() push(string.rep("─", W - 2)) end
   local function blank() push("") end
 
   if detail and not detail.error then
-    -- Header
-    push(pad_right(" " .. detail.name, W - #detail.kind - 3) .. detail.kind .. " ")
+    local kind = detail.kind or ""
+    push(pad_right(" " .. title, W - #kind - 3) .. kind .. " ")
     rule()
     blank()
 
-    -- Summary (word-wrapped)
-    local summary = (detail.summary ~= "" and detail.summary) or "(no summary)"
-    for _, wline in ipairs(word_wrap(summary, W - 4)) do
-      push("  " .. wline)
+    local summary_text = (detail.summary ~= "" and detail.summary) or "(no summary)"
+    for _, wl in ipairs(word_wrap(summary_text, W - 4)) do push("  " .. wl) end
+    blank()
+
+    if detail.file then
+      push("  " .. detail.file .. "  :" .. (detail.line_start or "") .. "–" .. (detail.line_end or ""))
+      blank()
     end
-    blank()
 
-    -- Location
-    push("  " .. detail.file .. "  :" .. detail.line_start .. "–" .. detail.line_end)
-    blank()
-
-    -- Calls (outgoing)
     if detail.calls and #detail.calls > 0 then
       push("  → Calls")
       for _, c in ipairs(detail.calls) do
@@ -378,77 +367,76 @@ local function show_info()
       blank()
     end
 
-    -- Called by (incoming)
     if detail.called_by and #detail.called_by > 0 then
       push("  ← Called by")
       for _, c in ipairs(detail.called_by) do
         local name = pad_right("    " .. c.name, 22)
-        local loc  = c.file ~= "" and c.file:match("[^/]+$") or ""
+        local loc  = c.file ~= "" and (c.file:match("[^/]+$") or "") or ""
         push(name .. (loc ~= "" and "  " .. loc or ""))
       end
       blank()
     end
-
-    -- Component connections (cross-file)
-    if connections and (
-      (#(connections.calls_into or {}) > 0) or
-      (#(connections.called_from or {}) > 0)
-    ) then
-      push("  ⬡ Component connections")
-      rule()
-      for _, link in ipairs(connections.calls_into or {}) do
-        push("  → " .. link.file_name)
-        for _, c in ipairs(link.connections) do
-          push("      " .. c.from_station .. " → " .. c.to_station)
-        end
-      end
-      for _, link in ipairs(connections.called_from or {}) do
-        push("  ← " .. link.file_name)
-        for _, c in ipairs(link.connections) do
-          push("      " .. c.from_station .. " → " .. c.to_station)
-        end
-      end
-      blank()
-    end
   else
-    push(" " .. st.name)
+    push(" " .. title)
     rule()
     blank()
-    push("  " .. (st.summary ~= "" and st.summary or "(no summary)"))
+    local s = summary or "(no summary)"
+    for _, wl in ipairs(word_wrap(s, W - 4)) do push("  " .. wl) end
     blank()
   end
 
+  -- Component connections (cross-file) — shown for both station and component view
+  if connections and (
+    (#(connections.calls_into or {}) > 0) or
+    (#(connections.called_from or {}) > 0)
+  ) then
+    push("  ⬡ Component connections")
+    rule()
+    for _, link in ipairs(connections.calls_into or {}) do
+      push("  → " .. link.file_name)
+      for _, c in ipairs(link.connections) do
+        push("      " .. c.from_station .. " → " .. c.to_station)
+      end
+    end
+    for _, link in ipairs(connections.called_from or {}) do
+      push("  ← " .. link.file_name)
+      for _, c in ipairs(link.connections) do
+        push("      " .. c.from_station .. " → " .. c.to_station)
+      end
+    end
+    blank()
+  end
+
+  return rows, W
+end
+
+local function open_info_popup(title, rows, W)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
   vim.bo[buf].modifiable = false
 
-  -- Position to the right of the map window, or below if no room
   local map_pos = vim.api.nvim_win_get_position(state.win)
   local map_w   = vim.api.nvim_win_get_width(state.win)
   local H = math.min(#rows, vim.o.lines - 4)
-
   local col = map_pos[2] + map_w + 1
-  if col + W > vim.o.columns then
-    col = math.max(0, vim.o.columns - W - 1)
-  end
-  local row = map_pos[1]
+  if col + W > vim.o.columns then col = math.max(0, vim.o.columns - W - 1) end
 
   info_win = vim.api.nvim_open_win(buf, false, {
     relative  = "editor",
     width     = W,
     height    = H,
-    row       = row,
+    row       = map_pos[1],
     col       = col,
     style     = "minimal",
     border    = "rounded",
-    title     = "  " .. (st.name or "") .. "  ",
+    title     = "  " .. title .. "  ",
     title_pos = "center",
     focusable = false,
+    zindex    = 100,
   })
 
-  -- Highlights in the info panel
   local info_ns = vim.api.nvim_create_namespace("metroscope_info")
   for i, line in ipairs(rows) do
     if line:match("^  →") then
@@ -460,12 +448,37 @@ local function show_info()
     end
   end
 
-  -- Auto-close on next navigation
-  vim.api.nvim_create_autocmd("CursorMoved", {
-    buffer   = state.buf,
-    once     = true,
-    callback = close_info,
-  })
+  -- Defer the autocmd so it doesn't fire on the current redraw
+  vim.schedule(function()
+    if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then return end
+    vim.api.nvim_create_autocmd("CursorMoved", {
+      buffer   = state.buf,
+      once     = true,
+      callback = close_info,
+    })
+  end)
+end
+
+local function show_info()
+  close_info()
+
+  local st = current_station()
+
+  if st then
+    -- Station info
+    local detail = fetch(config.server .. "/station/" .. st.id)
+    local file_id = st.id:match("^(.+)::.+$") or ""
+    local connections = fetch(config.server .. "/connections?file=" .. vim.uri_encode(file_id))
+    local rows, W = build_info_rows(st.name, st.summary, file_id, detail, connections)
+    open_info_popup(st.name, rows, W)
+  else
+    -- Component (line) info — cursor on a line with no stations in view, or on label row
+    local line = state.data and state.data.lines[state.line_idx]
+    if not line then return end
+    local connections = fetch(config.server .. "/connections?file=" .. vim.uri_encode(line.id))
+    local rows, W = build_info_rows(line.name, line.summary, line.id, nil, connections)
+    open_info_popup(line.name, rows, W)
+  end
 end
 
 -- ─── Jump to code ─────────────────────────────────────────────────────────────

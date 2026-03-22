@@ -101,13 +101,22 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>) -> MapRespon
 }
 
 /// True if any of this station's connections point to a station in a different file.
+///
+/// Connections from tree-sitter store bare names (e.g. "call_claude"), not full ids.
+/// Connections from Serena store full ids ("path/to/file.rs::fn").
+/// We handle both: try full-id lookup first, then fall back to name match.
 fn station_has_cross_line(index: &Index, station: &Station) -> bool {
     station.connections.iter().any(|conn| {
-        index
-            .stations
-            .get(&conn.to)
-            .map(|target| target.line_id != station.line_id)
-            .unwrap_or(false)
+        // Full-id lookup (Serena-enriched connections)
+        if let Some(target) = index.stations.get(&conn.to) {
+            return target.line_id != station.line_id;
+        }
+        // Name-only lookup (tree-sitter connections) — check if any station
+        // with that name lives in a different file
+        let name = conn.to.split("::").last().unwrap_or(&conn.to);
+        index.stations.values().any(|s| {
+            s.name == name && s.line_id != station.line_id
+        })
     })
 }
 
@@ -152,9 +161,15 @@ pub fn build_file_connections(index: &Index, file_id: &str) -> FileConnections {
 
     for station in &file_stations {
         for conn in &station.connections {
-            if let Some(target) = index.stations.get(&conn.to) {
+            // Resolve target: try full-id first, then name-only match
+            let target = index.stations.get(&conn.to).or_else(|| {
+                let name = conn.to.split("::").last().unwrap_or(&conn.to);
+                index.stations.values().find(|s| s.name == name && s.line_id != station.line_id)
+            });
+
+            if let Some(target) = target {
                 if target.line_id == file_id {
-                    continue; // same file, skip
+                    continue;
                 }
                 let cross = CrossConnection {
                     from_station: station.name.clone(),
