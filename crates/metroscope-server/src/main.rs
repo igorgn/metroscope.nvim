@@ -84,6 +84,7 @@ struct ResolvedConnection {
     name: String,
     summary: String,
     file: String,
+    line_start: u32,
 }
 
 #[derive(Serialize)]
@@ -119,6 +120,7 @@ async fn handle_station(
                 name: target.name.clone(),
                 summary: target.summary.clone(),
                 file: target.location.file.clone(),
+                line_start: target.location.line_start,
             }
         } else {
             ResolvedConnection {
@@ -126,8 +128,12 @@ async fn handle_station(
                 name: conn.to.split("::").last().unwrap_or(&conn.to).to_string(),
                 summary: String::new(),
                 file: String::new(),
+                line_start: 0,
             }
         };
+
+        // Only include connections that resolved to a known station
+        if resolved.file.is_empty() { continue; }
 
         match conn.kind {
             ConnectionKind::Calls => calls.push(resolved),

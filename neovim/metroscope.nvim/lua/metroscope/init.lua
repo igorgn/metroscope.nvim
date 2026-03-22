@@ -4,7 +4,8 @@
 local M = {}
 
 local config = {
-  server = "http://127.0.0.1:7777",
+  server     = "http://127.0.0.1:7777",
+  serena_dir = nil,   -- optional: path to serena repo for LSP-accurate call graph
 }
 
 -- ─── HTTP ─────────────────────────────────────────────────────────────────────
@@ -202,6 +203,7 @@ local ns = vim.api.nvim_create_namespace("metroscope")
 
 local function setup_highlights()
   vim.api.nvim_set_hl(0, "MetroscopeFocusedBox",  { fg = "#FFD700", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeArrow",       { fg = "#FFD700", bold = true })
   vim.api.nvim_set_hl(0, "MetroscopeCrossLine",   { fg = "#FF6B6B", bold = true })
   vim.api.nvim_set_hl(0, "MetroscopeTrack",       { fg = "#555555" })
   vim.api.nvim_set_hl(0, "MetroscopeStatusKey",   { fg = "#888888" })
@@ -338,7 +340,11 @@ end
 local function build_info_rows(title, summary, file_id, detail, connections)
   local W = 52
   local rows = {}
-  local function push(s) table.insert(rows, s) end
+  local jump_targets = {}  -- row index (1-based) -> { file, line }
+  local function push(s, target)
+    table.insert(rows, s)
+    if target then jump_targets[#rows] = target end
+  end
   local function rule() push(string.rep("─", W - 2)) end
   local function blank() push("") end
 
@@ -353,16 +359,18 @@ local function build_info_rows(title, summary, file_id, detail, connections)
     blank()
 
     if detail.file then
-      push("  " .. detail.file .. "  :" .. (detail.line_start or "") .. "–" .. (detail.line_end or ""))
+      push("  " .. detail.file .. "  :" .. (detail.line_start or "") .. "–" .. (detail.line_end or ""),
+        { file = detail.file, line = detail.line_start })
       blank()
     end
 
     if detail.calls and #detail.calls > 0 then
       push("  → Calls")
       for _, c in ipairs(detail.calls) do
-        local name = pad_right("    " .. c.name, 22)
-        local hint = c.summary ~= "" and c.summary:sub(1, W - 24) or ""
-        push(name .. (hint ~= "" and "  " .. hint or ""))
+        local name = pad_right("  ▸ " .. c.name, 24)
+        local hint = c.summary ~= "" and c.summary:sub(1, W - 26) or ""
+        push(name .. (hint ~= "" and "  " .. hint or ""),
+          { file = c.file, line = c.line_start })
       end
       blank()
     end
@@ -370,9 +378,10 @@ local function build_info_rows(title, summary, file_id, detail, connections)
     if detail.called_by and #detail.called_by > 0 then
       push("  ← Called by")
       for _, c in ipairs(detail.called_by) do
-        local name = pad_right("    " .. c.name, 22)
+        local name = pad_right("  ▸ " .. c.name, 24)
         local loc  = c.file ~= "" and (c.file:match("[^/]+$") or "") or ""
-        push(name .. (loc ~= "" and "  " .. loc or ""))
+        push(name .. (loc ~= "" and "  " .. loc or ""),
+          { file = c.file, line = c.line_start })
       end
       blank()
     end
@@ -407,10 +416,10 @@ local function build_info_rows(title, summary, file_id, detail, connections)
     blank()
   end
 
-  return rows, W
+  return rows, W, jump_targets
 end
 
-local function open_info_popup(title, rows, W)
+local function open_info_popup(title, rows, W, jump_targets)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
@@ -433,11 +442,12 @@ local function open_info_popup(title, rows, W)
     border    = "rounded",
     title     = "  " .. title .. "  ",
     title_pos = "center",
-    focusable = false,
+    focusable = true,
     zindex    = 100,
   })
 
-  local info_ns = vim.api.nvim_create_namespace("metroscope_info")
+  local info_ns  = vim.api.nvim_create_namespace("metroscope_info")
+  local arrow_ns = vim.api.nvim_create_namespace("metroscope_info_arrow")
   for i, line in ipairs(rows) do
     if line:match("^  →") then
       vim.api.nvim_buf_add_highlight(buf, info_ns, "Function",   i - 1, 0, -1)
@@ -447,6 +457,74 @@ local function open_info_popup(title, rows, W)
       vim.api.nvim_buf_add_highlight(buf, info_ns, "MetroscopeCrossLine", i - 1, 0, -1)
     end
   end
+
+  -- Arrow cursor: tracks which line the user is on in the popup
+  local arrow_row = 0  -- 0-indexed
+
+  local function draw_arrow(row)
+    vim.api.nvim_buf_clear_namespace(buf, arrow_ns, 0, -1)
+    vim.api.nvim_buf_set_extmark(buf, arrow_ns, row, 0, {
+      virt_text       = { { "▶", "MetroscopeArrow" } },
+      virt_text_pos   = "overlay",
+      hl_mode         = "combine",
+    })
+  end
+
+  draw_arrow(arrow_row)
+
+  -- Keymaps inside info popup: j/k scroll, q/<Esc>/<Tab> return focus to map
+  local function focus_map()
+    if state.win and vim.api.nvim_win_is_valid(state.win) then
+      vim.api.nvim_set_current_win(state.win)
+    end
+  end
+  local opts = { buffer = buf, nowait = true, silent = true }
+  vim.keymap.set("n", "q",     close_info, opts)
+  vim.keymap.set("n", "<Esc>", close_info, opts)
+  vim.keymap.set("n", "<Tab>", focus_map,  opts)
+  vim.keymap.set("n", "j", function()
+    local max = vim.api.nvim_buf_line_count(buf) - 1
+    if arrow_row < max then
+      arrow_row = arrow_row + 1
+      draw_arrow(arrow_row)
+      vim.api.nvim_win_set_cursor(info_win, { arrow_row + 1, 0 })
+    end
+  end, opts)
+  vim.keymap.set("n", "k", function()
+    if arrow_row > 0 then
+      arrow_row = arrow_row - 1
+      draw_arrow(arrow_row)
+      vim.api.nvim_win_set_cursor(info_win, { arrow_row + 1, 0 })
+    end
+  end, opts)
+
+  -- Pressing i while in info popup: close and return to map
+  vim.keymap.set("n", "i", function()
+    close_info()
+    focus_map()
+  end, opts)
+
+  -- Enter: jump to the file/line of the row under the arrow
+  vim.keymap.set("n", "<CR>", function()
+    local target = jump_targets and jump_targets[arrow_row + 1]
+    if not target or not target.file or target.file == "" then return end
+    close_info()
+    M.close()
+    local target_win = nil
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.bo[vim.api.nvim_win_get_buf(w)].filetype ~= "metroscope" then
+        target_win = w; break
+      end
+    end
+    if target_win then vim.api.nvim_set_current_win(target_win) end
+    local lnum = math.max(1, target.line or 1)
+    vim.cmd("edit " .. vim.fn.fnameescape(target.file))
+    vim.schedule(function()
+      local max = vim.api.nvim_buf_line_count(0)
+      vim.api.nvim_win_set_cursor(0, { math.min(lnum, max), 0 })
+      vim.cmd("normal! zz")
+    end)
+  end, opts)
 
   -- Defer the autocmd so it doesn't fire on the current redraw
   vim.schedule(function()
@@ -469,15 +547,15 @@ local function show_info()
     local detail = fetch(config.server .. "/station/" .. st.id)
     local file_id = st.id:match("^(.+)::.+$") or ""
     local connections = fetch(config.server .. "/connections?file=" .. vim.uri_encode(file_id))
-    local rows, W = build_info_rows(st.name, st.summary, file_id, detail, connections)
-    open_info_popup(st.name, rows, W)
+    local rows, W, jt = build_info_rows(st.name, st.summary, file_id, detail, connections)
+    open_info_popup(st.name, rows, W, jt)
   else
     -- Component (line) info — cursor on a line with no stations in view, or on label row
     local line = state.data and state.data.lines[state.line_idx]
     if not line then return end
     local connections = fetch(config.server .. "/connections?file=" .. vim.uri_encode(line.id))
-    local rows, W = build_info_rows(line.name, line.summary, line.id, nil, connections)
-    open_info_popup(line.name, rows, W)
+    local rows, W, jt = build_info_rows(line.name, line.summary, line.id, nil, connections)
+    open_info_popup(line.name, rows, W, jt)
   end
 end
 
@@ -502,9 +580,13 @@ local function jump_to_code()
   end
   if target_win then vim.api.nvim_set_current_win(target_win) end
 
+  local lnum = math.max(1, line_nr or 1)
   vim.cmd("edit " .. vim.fn.fnameescape(file))
-  vim.api.nvim_win_set_cursor(0, { line_nr, 0 })
-  vim.cmd("normal! zz")
+  vim.schedule(function()
+    local max = vim.api.nvim_buf_line_count(0)
+    vim.api.nvim_win_set_cursor(0, { math.min(lnum, max), 0 })
+    vim.cmd("normal! zz")
+  end)
 end
 
 -- ─── Keymaps ──────────────────────────────────────────────────────────────────
@@ -519,6 +601,11 @@ local function set_keymaps(buf)
   map("k",     move_up)
   map("i",     show_info)
   map("K",     show_info)
+  map("<Tab>", function()
+    if info_win and vim.api.nvim_win_is_valid(info_win) then
+      vim.api.nvim_set_current_win(info_win)
+    end
+  end)
   map("<CR>",  jump_to_code)
   map("q",     M.close)
   map("<Esc>", M.close)
@@ -575,12 +662,16 @@ function M.index(project_root, api_key)
     vim.fn.shellescape(project_root),
     vim.fn.shellescape(api_key)
   )
+  if config.serena_dir then
+    cmd = cmd .. " --serena-dir " .. vim.fn.shellescape(config.serena_dir)
+  end
   vim.cmd("botright 15split | terminal " .. cmd)
 end
 
 function M.setup(opts)
   opts = opts or {}
-  if opts.server then config.server = opts.server end
+  if opts.server     then config.server     = opts.server     end
+  if opts.serena_dir then config.serena_dir = opts.serena_dir end
   local leader = opts.leader or "<leader>m"
   vim.keymap.set("n", leader .. "s", M.open, { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "i", function()

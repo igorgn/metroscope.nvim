@@ -53,6 +53,7 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>) -> MapRespon
 
     let lines = all_lines[line_range]
         .iter()
+        .filter(|line| !line.stations.is_empty())
         .map(|line| {
             let is_focused_line = Some(line.id.as_str()) == focused_line_id;
             let focused_station_id = focused.map(|s| s.id.as_str());
