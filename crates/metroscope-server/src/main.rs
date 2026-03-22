@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/map", get(handle_map))
         // Wildcard so station ids with slashes work: /station/src/main.rs::foo
-        .route("/station/{*id}", get(handle_station))
+        .route("/station/*id", get(handle_station))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
