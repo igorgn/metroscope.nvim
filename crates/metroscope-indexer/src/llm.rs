@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -7,16 +9,23 @@ use crate::parser::ParsedFile;
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const MODEL: &str = "claude-haiku-4-5-20251001";
-/// Max functions to summarize in a single API call
+/// Max functions to summarize in a single API call / CLI invocation
 const BATCH_SIZE: usize = 20;
 
+pub enum LlmBackend {
+    /// Direct API access with key
+    Api { key: String },
+    /// Delegate to the `claude` CLI (already authenticated)
+    Cli,
+}
+
 pub struct Summaries {
-    /// function id → summary
     pub function_summaries: HashMap<String, String>,
-    /// file id → summary
     pub file_summaries: HashMap<String, String>,
     pub system_summary: String,
 }
+
+// ─── API structs ──────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
 struct ApiRequest {
@@ -41,7 +50,16 @@ struct ContentBlock {
     text: String,
 }
 
-async fn call_claude(api_key: &str, prompt: &str) -> Result<String> {
+// ─── Backend dispatch ─────────────────────────────────────────────────────────
+
+async fn call_claude(backend: &LlmBackend, prompt: &str) -> Result<String> {
+    match backend {
+        LlmBackend::Api { key } => call_via_api(key, prompt).await,
+        LlmBackend::Cli => call_via_cli(prompt),
+    }
+}
+
+async fn call_via_api(api_key: &str, prompt: &str) -> Result<String> {
     let client = reqwest::Client::new();
     let req = ApiRequest {
         model: MODEL.to_string(),
@@ -76,15 +94,44 @@ async fn call_claude(api_key: &str, prompt: &str) -> Result<String> {
         .join(""))
 }
 
-pub async fn generate_summaries(files: &[ParsedFile], api_key: &str) -> Result<Summaries> {
+/// Invoke `claude -p` with the prompt piped to stdin.
+fn call_via_cli(prompt: &str) -> Result<String> {
+    let mut child = Command::new("claude")
+        .arg("-p")           // --print: non-interactive, print response to stdout
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("Failed to spawn `claude` CLI — is it installed and on PATH?")?;
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(prompt.as_bytes())
+        .context("Failed to write prompt to claude stdin")?;
+
+    let output = child.wait_with_output().context("Failed to wait for claude CLI")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "`claude` exited with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+// ─── Public entry point ───────────────────────────────────────────────────────
+
+pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend) -> Result<Summaries> {
     let mut function_summaries: HashMap<String, String> = HashMap::new();
     let mut file_summaries: HashMap<String, String> = HashMap::new();
 
     // --- Function summaries (batched) ---
-    let all_functions: Vec<_> = files
-        .iter()
-        .flat_map(|f| f.functions.iter())
-        .collect();
+    let all_functions: Vec<_> = files.iter().flat_map(|f| f.functions.iter()).collect();
 
     let batches: Vec<_> = all_functions.chunks(BATCH_SIZE).collect();
     println!(
@@ -96,25 +143,25 @@ pub async fn generate_summaries(files: &[ParsedFile], api_key: &str) -> Result<S
     for (i, batch) in batches.iter().enumerate() {
         println!("  Batch {}/{}", i + 1, batches.len());
         let prompt = build_function_batch_prompt(batch);
-        let response = call_claude(api_key, &prompt).await?;
+        let response = call_claude(backend, &prompt).await?;
         parse_function_batch_response(&response, batch, &mut function_summaries);
     }
 
-    // --- File summaries (one call per file, but could also batch) ---
+    // --- File summaries ---
     println!("  Summarizing {} files...", files.len());
     for file in files {
         if file.functions.is_empty() {
             continue;
         }
         let prompt = build_file_prompt(file);
-        let summary = call_claude(api_key, &prompt).await?;
+        let summary = call_claude(backend, &prompt).await?;
         file_summaries.insert(file.file_id.clone(), summary.trim().to_string());
     }
 
     // --- System summary ---
     println!("  Generating system summary...");
     let system_prompt = build_system_prompt(files, &file_summaries);
-    let system_summary = call_claude(api_key, &system_prompt).await?;
+    let system_summary = call_claude(backend, &system_prompt).await?;
 
     Ok(Summaries {
         function_summaries,
@@ -122,6 +169,8 @@ pub async fn generate_summaries(files: &[ParsedFile], api_key: &str) -> Result<S
         system_summary: system_summary.trim().to_string(),
     })
 }
+
+// ─── Prompt builders ──────────────────────────────────────────────────────────
 
 fn build_function_batch_prompt(functions: &[&crate::parser::ParsedFunction]) -> String {
     let mut prompt = String::from(
@@ -148,7 +197,6 @@ fn parse_function_batch_response(
     functions: &[&crate::parser::ParsedFunction],
     out: &mut HashMap<String, String>,
 ) {
-    // Build a lookup by id for fallback
     let id_set: std::collections::HashSet<_> = functions.iter().map(|f| &f.id).collect();
 
     for line in response.lines() {
@@ -160,9 +208,9 @@ fn parse_function_batch_response(
         }
     }
 
-    // Fallback: any function without a summary gets a placeholder
     for func in functions {
-        out.entry(func.id.clone()).or_insert_with(|| "No summary available.".to_string());
+        out.entry(func.id.clone())
+            .or_insert_with(|| "No summary available.".to_string());
     }
 }
 
@@ -175,18 +223,15 @@ Be concrete. Use present tense.\n\n\
 File: {}\nFunctions: {}\n\nSource:\n```rust\n{}\n```",
         file.file_id,
         fn_names.join(", "),
-        // Truncate source to avoid token limits
         &file.source[..file.source.len().min(6000)]
     )
 }
 
-fn build_system_prompt(
-    files: &[ParsedFile],
-    file_summaries: &HashMap<String, String>,
-) -> String {
+fn build_system_prompt(files: &[ParsedFile], file_summaries: &HashMap<String, String>) -> String {
     let mut lines = vec![
         "You are summarizing a Rust project for a code navigation tool.".to_string(),
-        "Write a single sentence (≤25 words) describing the overall purpose of this project.".to_string(),
+        "Write a single sentence (≤25 words) describing the overall purpose of this project."
+            .to_string(),
         "Be concrete. Use present tense.\n".to_string(),
         "Files and their summaries:".to_string(),
     ];

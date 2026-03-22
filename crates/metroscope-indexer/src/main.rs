@@ -13,6 +13,7 @@ use walkdir::WalkDir;
 
 use parser::{ParsedFile, LanguageParser};
 use parser::rust::RustParser;
+use llm::LlmBackend;
 
 #[derive(ClapParser)]
 #[command(name = "metroscope-indexer")]
@@ -27,9 +28,9 @@ enum Command {
     Index {
         /// Path to the project root
         path: PathBuf,
-        /// Anthropic API key
+        /// Anthropic API key. If omitted, the `claude` CLI is used instead.
         #[arg(long, env = "ANTHROPIC_API_KEY")]
-        api_key: String,
+        api_key: Option<String>,
     },
 }
 
@@ -37,11 +38,20 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Index { path, api_key } => index_project(&path, &api_key).await,
+        Command::Index { path, api_key } => {
+            let backend = match api_key {
+                Some(key) => LlmBackend::Api { key },
+                None => {
+                    println!("No API key provided — using `claude` CLI");
+                    LlmBackend::Cli
+                }
+            };
+            index_project(&path, &backend).await
+        }
     }
 }
 
-async fn index_project(project_root: &Path, api_key: &str) -> Result<()> {
+async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> {
     let project_root = project_root
         .canonicalize()
         .context("Failed to canonicalize project root")?;
@@ -84,7 +94,7 @@ async fn index_project(project_root: &Path, api_key: &str) -> Result<()> {
 
     // Generate LLM summaries (batched)
     println!("Generating summaries with Claude...");
-    let summaries = llm::generate_summaries(&parsed_files, api_key).await?;
+    let summaries = llm::generate_summaries(&parsed_files, backend).await?;
 
     // Build index
     let mut stations: HashMap<String, Station> = HashMap::new();
