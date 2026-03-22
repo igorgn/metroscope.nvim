@@ -1,17 +1,15 @@
-use metroscope_types::{Index, Line, Station};
+use metroscope_types::{ConnectionKind, Index, Line, Station};
 use serde::Serialize;
 
-/// How many stations to show on each side of the focused station
 const CONTEXT_RADIUS: usize = 3;
-/// How many adjacent lines to show above/below the focused line
 const LINE_RADIUS: usize = 2;
 
 #[derive(Serialize)]
 pub struct MapResponse {
-    /// The station the cursor is on (may be null if no function at cursor)
     pub focused_station: Option<String>,
-    /// Lines to render, in display order
     pub lines: Vec<LineView>,
+    /// System-level summary shown in the status bar
+    pub system_summary: String,
 }
 
 #[derive(Serialize)]
@@ -20,9 +18,7 @@ pub struct LineView {
     pub name: String,
     pub color: String,
     pub summary: String,
-    /// Stations to display, in order
     pub stations: Vec<StationView>,
-    /// Whether this is the line containing the focused station
     pub is_focused: bool,
 }
 
@@ -34,21 +30,19 @@ pub struct StationView {
     pub is_focused: bool,
     pub line_start: u32,
     pub line_end: u32,
+    /// True if this station has connections to/from stations on OTHER lines
+    pub has_cross_line: bool,
 }
 
 pub fn build_map_response(index: &Index, focused: Option<&Station>) -> MapResponse {
-    // Collect and sort lines by id for stable ordering
     let mut all_lines: Vec<&Line> = index.lines.values().collect();
     all_lines.sort_by(|a, b| a.id.cmp(&b.id));
 
     let focused_line_id = focused.map(|s| s.line_id.as_str());
 
-    // Find the index of the focused line in the sorted list
-    let focused_line_idx = focused_line_id.and_then(|fid| {
-        all_lines.iter().position(|l| l.id == fid)
-    });
+    let focused_line_idx = focused_line_id
+        .and_then(|fid| all_lines.iter().position(|l| l.id == fid));
 
-    // Determine which lines to include
     let line_range = if let Some(fi) = focused_line_idx {
         let start = fi.saturating_sub(LINE_RADIUS);
         let end = (fi + LINE_RADIUS + 1).min(all_lines.len());
@@ -63,12 +57,9 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>) -> MapRespon
             let is_focused_line = Some(line.id.as_str()) == focused_line_id;
             let focused_station_id = focused.map(|s| s.id.as_str());
 
-            // Find focused station index within this line's stations
-            let focused_idx = focused_station_id.and_then(|fid| {
-                line.stations.iter().position(|sid| sid == fid)
-            });
+            let focused_idx = focused_station_id
+                .and_then(|fid| line.stations.iter().position(|sid| sid == fid));
 
-            // Determine which stations to show
             let station_range = if let Some(fi) = focused_idx {
                 let start = fi.saturating_sub(CONTEXT_RADIUS);
                 let end = (fi + CONTEXT_RADIUS + 1).min(line.stations.len());
@@ -87,6 +78,7 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>) -> MapRespon
                     is_focused: Some(s.id.as_str()) == focused_station_id,
                     line_start: s.location.line_start,
                     line_end: s.location.line_end,
+                    has_cross_line: station_has_cross_line(index, s),
                 })
                 .collect();
 
@@ -104,5 +96,106 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>) -> MapRespon
     MapResponse {
         focused_station: focused.map(|s| s.id.clone()),
         lines,
+        system_summary: index.system_summary.clone(),
+    }
+}
+
+/// True if any of this station's connections point to a station in a different file.
+fn station_has_cross_line(index: &Index, station: &Station) -> bool {
+    station.connections.iter().any(|conn| {
+        index
+            .stations
+            .get(&conn.to)
+            .map(|target| target.line_id != station.line_id)
+            .unwrap_or(false)
+    })
+}
+
+/// Cross-line connection summary for a file — which other files does it connect to?
+#[derive(Serialize)]
+pub struct FileConnections {
+    pub file_id: String,
+    /// Files this file calls into
+    pub calls_into: Vec<FileLink>,
+    /// Files that call into this file
+    pub called_from: Vec<FileLink>,
+}
+
+#[derive(Serialize)]
+pub struct FileLink {
+    pub file_id: String,
+    pub file_name: String,
+    pub color: String,
+    /// Specific cross-line connections
+    pub connections: Vec<CrossConnection>,
+}
+
+#[derive(Serialize)]
+pub struct CrossConnection {
+    pub from_station: String,
+    pub to_station: String,
+    pub kind: String,
+}
+
+pub fn build_file_connections(index: &Index, file_id: &str) -> FileConnections {
+    let mut calls_into: std::collections::HashMap<String, Vec<CrossConnection>> =
+        std::collections::HashMap::new();
+    let mut called_from: std::collections::HashMap<String, Vec<CrossConnection>> =
+        std::collections::HashMap::new();
+
+    // Gather all stations in this file
+    let file_stations: Vec<&Station> = index
+        .stations
+        .values()
+        .filter(|s| s.line_id == file_id)
+        .collect();
+
+    for station in &file_stations {
+        for conn in &station.connections {
+            if let Some(target) = index.stations.get(&conn.to) {
+                if target.line_id == file_id {
+                    continue; // same file, skip
+                }
+                let cross = CrossConnection {
+                    from_station: station.name.clone(),
+                    to_station: target.name.clone(),
+                    kind: match conn.kind {
+                        ConnectionKind::Calls => "calls".to_string(),
+                        ConnectionKind::CalledBy => "called_by".to_string(),
+                    },
+                };
+                match conn.kind {
+                    ConnectionKind::Calls => {
+                        calls_into.entry(target.line_id.clone()).or_default().push(cross);
+                    }
+                    ConnectionKind::CalledBy => {
+                        called_from.entry(target.line_id.clone()).or_default().push(cross);
+                    }
+                }
+            }
+        }
+    }
+
+    let to_file_links = |map: std::collections::HashMap<String, Vec<CrossConnection>>| {
+        let mut links: Vec<FileLink> = map
+            .into_iter()
+            .filter_map(|(fid, conns)| {
+                let line = index.lines.get(&fid)?;
+                Some(FileLink {
+                    file_id: fid,
+                    file_name: line.name.clone(),
+                    color: line.color.clone(),
+                    connections: conns,
+                })
+            })
+            .collect();
+        links.sort_by(|a, b| a.file_id.cmp(&b.file_id));
+        links
+    };
+
+    FileConnections {
+        file_id: file_id.to_string(),
+        calls_into: to_file_links(calls_into),
+        called_from: to_file_links(called_from),
     }
 }

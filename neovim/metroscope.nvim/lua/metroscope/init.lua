@@ -7,7 +7,7 @@ local config = {
   server = "http://127.0.0.1:7777",
 }
 
--- ─── HTTP helpers ─────────────────────────────────────────────────────────────
+-- ─── HTTP ─────────────────────────────────────────────────────────────────────
 
 local function fetch(url)
   local handle = io.popen('curl -s --max-time 2 "' .. url .. '"')
@@ -15,99 +15,158 @@ local function fetch(url)
   local result = handle:read("*a")
   handle:close()
   if not result or result == "" then return nil end
-  return vim.json.decode(result)
+  local ok, decoded = pcall(vim.json.decode, result)
+  return ok and decoded or nil
 end
 
--- ─── Map state ────────────────────────────────────────────────────────────────
+-- ─── State ────────────────────────────────────────────────────────────────────
 
 local state = {
-  buf = nil,
-  win = nil,
-  data = nil,        -- MapResponse from server
-  -- cursor position within the map
-  line_idx = 1,      -- which Line we're on (1-based)
-  station_idx = 1,   -- which Station on that line (1-based)
+  buf      = nil,
+  win      = nil,
+  data     = nil,   -- MapResponse
+  line_idx    = 1,
+  station_idx = 1,
 }
 
--- ─── Rendering ────────────────────────────────────────────────────────────────
+-- ─── Layout constants ─────────────────────────────────────────────────────────
 
-local STATION     = "●"
-local STATION_YOU = "◉"
-local DASH        = "─"
-local LABEL_W     = 14   -- fixed width for "[filename]" column
-local MIN_SLOT    = 4    -- minimum track segment width between stations
-local PAD         = 2    -- spaces between name and next station
+local LABEL_W   = 14   -- "[filename]    " column
+local PAD       = 3    -- spaces between boxes
+local BOX_MIN   = 6    -- minimum box inner width
+local CROSS_SYM = "⬡"  -- marker for stations with cross-line connections
+local DASH      = "─"
+
+-- ─── Helpers ──────────────────────────────────────────────────────────────────
 
 local function pad_right(s, n)
   local len = vim.fn.strdisplaywidth(s)
-  if len >= n then return s end
-  return s .. string.rep(" ", n - len)
+  return len >= n and s or (s .. string.rep(" ", n - len))
 end
 
 local function dashes(n)
   return string.rep(DASH, math.max(0, n))
 end
 
+local function word_wrap(s, w)
+  local lines = {}
+  while vim.fn.strdisplaywidth(s) > w do
+    local cut = s:sub(1, w):match("^(.+)%s") or s:sub(1, w)
+    table.insert(lines, cut)
+    s = vim.trim(s:sub(#cut + 1))
+  end
+  if s ~= "" then table.insert(lines, s) end
+  return lines
+end
+
+-- ─── Rendering ────────────────────────────────────────────────────────────────
+--
+-- Each station is a box:
+--
+--   ┌──────────────┐
+--   │ station_name │
+--   └──────────────┘
+--
+-- Focused station:
+--   ╔══════════════╗
+--   ║ station_name ║
+--   ╚══════════════╝
+--
+-- With cross-line connections: ⬡ appended inside the box.
+--
+-- Lines are rendered as three rows (top border, name, bottom border) connected
+-- by horizontal tracks on the middle row.
+
+local function box(name, focused, cross)
+  local label = cross and (name .. " " .. CROSS_SYM) or name
+  local inner = math.max(vim.fn.strdisplaywidth(label) + 2, BOX_MIN)
+  local pad_l = " "
+  local pad_r = string.rep(" ", inner - vim.fn.strdisplaywidth(label) - 1)
+
+  if focused then
+    return {
+      "╔" .. string.rep("═", inner) .. "╗",
+      "║" .. pad_l .. label .. pad_r .. "║",
+      "╚" .. string.rep("═", inner) .. "╝",
+    }, inner + 2  -- total box width incl borders
+  else
+    return {
+      "┌" .. string.rep("─", inner) .. "┐",
+      "│" .. pad_l .. label .. pad_r .. "│",
+      "└" .. string.rep("─", inner) .. "┘",
+    }, inner + 2
+  end
+end
+
 local function render_map(data)
   if not data or not data.lines then return {} end
 
-  local lines_out = {}
+  local out = {}
 
   for li, line in ipairs(data.lines) do
     local label = pad_right("[" .. line.name .. "]", LABEL_W)
 
     if #line.stations == 0 then
-      -- File exists but has no functions — show a bare track
-      table.insert(lines_out, label .. " " .. dashes(6))
-      table.insert(lines_out, "")
-      table.insert(lines_out, "")
+      table.insert(out, label .. " " .. dashes(8))
+      table.insert(out, "")
+      table.insert(out, "")
+      table.insert(out, "")
     else
-      -- Compute per-station slot width = max(name display width + PAD, MIN_SLOT)
-      local slots = {}
-      for _, st in ipairs(line.stations) do
-        local nw = vim.fn.strdisplaywidth(st.name)
-        slots[#slots + 1] = math.max(nw + PAD, MIN_SLOT)
+      -- Build per-station boxes
+      local boxes = {}
+      local widths = {}
+      for si, st in ipairs(line.stations) do
+        local focused = st.is_focused
+            and state.line_idx == li
+            and state.station_idx == si
+        local b, w = box(st.name, focused, st.has_cross_line)
+        boxes[si] = b
+        widths[si] = w
       end
 
-      -- Build track row: label + leading dashes + for each station: symbol + trailing dashes
-      -- The symbol sits at the start of its slot; trailing dashes fill (slot_w - 1) chars.
-      local track = label .. " " .. dashes(2)
-      for si, st in ipairs(line.stations) do
-        local focused = st.is_focused and state.line_idx == li and state.station_idx == si
-        local sym = focused and STATION_YOU or STATION
-        local trail = slots[si] - 1   -- dashes after the symbol to fill the slot
-        -- last station: no trailing dashes (avoids trailing garbage)
-        if si == #line.stations then trail = 0 end
-        track = track .. sym .. dashes(trail)
-      end
+      -- Three-row render: top, mid (with track), bottom
+      -- track connector: "──" between boxes, aligned to middle row
 
-      -- Build names row: same slot widths, names left-aligned within each slot
-      local indent = string.rep(" ", vim.fn.strdisplaywidth(label) + 3)  -- label + " " + 2 leading dashes
-      local name_line = indent
-      for si, st in ipairs(line.stations) do
-        if si == #line.stations then
-          name_line = name_line .. st.name
-        else
-          name_line = name_line .. pad_right(st.name, slots[si])
+      local indent = string.rep(" ", LABEL_W)
+      local top_row  = label .. " "    -- label only on middle row; top/bot indent
+      local mid_row  = label .. " " .. dashes(2)
+      local bot_row  = label .. " "
+
+      -- First box: leading dashes already on mid_row
+      for si, b in ipairs(boxes) do
+        top_row = top_row .. (si == 1 and string.rep(" ", 2) or string.rep(" ", PAD)) .. b[1]
+        mid_row = mid_row .. b[2]
+        bot_row = bot_row .. (si == 1 and string.rep(" ", 2) or string.rep(" ", PAD)) .. b[3]
+
+        if si < #boxes then
+          -- connector track on middle row, spaces on top/bot
+          local conn = dashes(PAD)
+          top_row = top_row .. string.rep(" ", PAD)
+          mid_row = mid_row .. conn
+          bot_row = bot_row .. string.rep(" ", PAD)
         end
       end
 
-      table.insert(lines_out, track)
-      table.insert(lines_out, name_line)
-      table.insert(lines_out, "")
+      table.insert(out, top_row)
+      table.insert(out, mid_row)
+      table.insert(out, bot_row)
+      table.insert(out, "")   -- blank separator
     end
   end
 
-  return lines_out
+  return out
 end
 
--- ─── Window management ────────────────────────────────────────────────────────
+-- Each line group = 4 rows (top, mid, bot, blank)
+local ROWS_PER_LINE = 4
+
+-- ─── Window ───────────────────────────────────────────────────────────────────
 
 local function open_window()
-  local width  = math.floor(vim.o.columns * 0.85)
-  local height = math.floor(vim.o.lines * 0.5)
-  local row    = math.floor((vim.o.lines - height) / 2)
-  local col    = math.floor((vim.o.columns - width) / 2)
+  local width  = math.floor(vim.o.columns * 0.90)
+  local height = math.floor(vim.o.lines   * 0.55)
+  local row    = math.floor((vim.o.lines   - height) / 2)
+  local col    = math.floor((vim.o.columns - width)  / 2)
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype    = "nofile"
@@ -116,24 +175,93 @@ local function open_window()
   vim.bo[buf].modifiable = false
 
   local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
-    width    = width,
-    height   = height,
-    row      = row,
-    col      = col,
-    style    = "minimal",
-    border   = "rounded",
-    title    = " Metroscope ",
+    relative  = "editor",
+    width     = width,
+    height    = height,
+    row       = row,
+    col       = col,
+    style     = "minimal",
+    border    = "rounded",
+    title     = " ⬡ Metroscope ",
     title_pos = "center",
+    footer    = "  i:info  <CR>:jump  h/l:move  j/k:line  q:close  ",
+    footer_pos = "center",
   })
 
-  vim.wo[win].wrap        = false
-  vim.wo[win].cursorline  = false
-  vim.wo[win].number      = false
-  vim.wo[win].signcolumn  = "no"
+  vim.wo[win].wrap       = false
+  vim.wo[win].cursorline = false
+  vim.wo[win].number     = false
+  vim.wo[win].signcolumn = "no"
 
   return buf, win
 end
+
+-- ─── Highlights ───────────────────────────────────────────────────────────────
+
+local ns = vim.api.nvim_create_namespace("metroscope")
+
+local function setup_highlights()
+  vim.api.nvim_set_hl(0, "MetroscopeFocusedBox",  { fg = "#FFD700", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeCrossLine",   { fg = "#FF6B6B", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeTrack",       { fg = "#555555" })
+  vim.api.nvim_set_hl(0, "MetroscopeStatusKey",   { fg = "#888888" })
+end
+
+local function apply_highlights()
+  if not state.buf or not state.data then return end
+  vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
+
+  for li, line in ipairs(state.data.lines) do
+    local base = (li - 1) * ROWS_PER_LINE  -- 0-based row of top border
+
+    -- Color the label on the middle row
+    local mid_row = base + 1
+    local hl_name = "MetroscopeLine" .. li
+    vim.api.nvim_set_hl(0, hl_name, { fg = line.color, bold = true })
+    vim.api.nvim_buf_add_highlight(state.buf, ns, hl_name, mid_row, 0, LABEL_W)
+
+    -- Highlight focused box (all 3 rows) and cross-line markers
+    for si, st in ipairs(line.stations) do
+      local focused = st.is_focused and state.line_idx == li and state.station_idx == si
+
+      if focused then
+        -- Highlight the ╔═╗ / ║ ║ / ╚═╝ rows
+        for row_off = 0, 2 do
+          local row = base + row_off
+          local text = vim.api.nvim_buf_get_lines(state.buf, row, row + 1, false)[1] or ""
+          -- Find the focused box by scanning for ╔ or ║ or ╚
+          local markers = { "╔", "║", "╚" }
+          local start_byte = text:find(markers[row_off + 1], 1, true)
+          if start_byte then
+            local end_byte = text:find(row_off == 1 and "║" or (row_off == 0 and "╗" or "╝"), start_byte + 3, true)
+            if end_byte then
+              vim.api.nvim_buf_add_highlight(
+                state.buf, ns, "MetroscopeFocusedBox",
+                row, start_byte - 1, end_byte + 2
+              )
+            end
+          end
+        end
+      end
+
+      -- Highlight ⬡ cross-line symbol
+      if st.has_cross_line then
+        local mid = base + 1
+        local text = vim.api.nvim_buf_get_lines(state.buf, mid, mid + 1, false)[1] or ""
+        local pos = text:find(CROSS_SYM, 1, true)
+        while pos do
+          vim.api.nvim_buf_add_highlight(
+            state.buf, ns, "MetroscopeCrossLine",
+            mid, pos - 1, pos - 1 + #CROSS_SYM
+          )
+          pos = text:find(CROSS_SYM, pos + #CROSS_SYM, true)
+        end
+      end
+    end
+  end
+end
+
+-- ─── Redraw ───────────────────────────────────────────────────────────────────
 
 local function redraw()
   if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then return end
@@ -144,46 +272,14 @@ local function redraw()
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, rendered)
   vim.bo[state.buf].modifiable = false
 
-  -- Position cursor on the focused track line (every line group = 3 lines)
-  local target_buf_line = (state.line_idx - 1) * 3 + 1
+  -- Scroll to focused line (middle row of the line group)
+  local target = (state.line_idx - 1) * ROWS_PER_LINE + 2
   if vim.api.nvim_win_is_valid(state.win) then
-    vim.api.nvim_win_set_cursor(state.win, { target_buf_line, 0 })
+    vim.api.nvim_win_set_cursor(state.win, { target, 0 })
   end
 
-  -- Apply highlights
-  M.apply_highlights()
+  apply_highlights()
 end
-
--- ─── Highlights ───────────────────────────────────────────────────────────────
-
-function M.apply_highlights()
-  if not state.buf or not state.data then return end
-  vim.api.nvim_buf_clear_namespace(state.buf, -1, 0, -1)
-
-  local ns = vim.api.nvim_create_namespace("metroscope")
-
-  for li, line in ipairs(state.data.lines) do
-    local buf_line = (li - 1) * 3  -- 0-based
-    -- Color the bracket label
-    local color_hl = "MetroscopeLine" .. li
-    vim.api.nvim_set_hl(0, color_hl, { fg = line.color, bold = true })
-    vim.api.nvim_buf_add_highlight(state.buf, ns, color_hl, buf_line, 0, LABEL_W)
-
-    -- Highlight focused station: scan the rendered track line for ◉
-    if state.line_idx == li then
-      local track_text = vim.api.nvim_buf_get_lines(state.buf, buf_line, buf_line + 1, false)[1] or ""
-      local byte_col = track_text:find(STATION_YOU, 1, true)
-      if byte_col then
-        vim.api.nvim_buf_add_highlight(
-          state.buf, ns, "MetroscopeFocused",
-          buf_line, byte_col - 1, byte_col - 1 + #STATION_YOU
-        )
-      end
-    end
-  end
-end
-
-vim.api.nvim_set_hl(0, "MetroscopeFocused", { fg = "#FFD700", bold = true })
 
 -- ─── Navigation ───────────────────────────────────────────────────────────────
 
@@ -195,10 +291,8 @@ local function current_station()
 end
 
 local function move_right()
-  if not state.data then return end
-  local line = state.data.lines[state.line_idx]
-  if not line then return end
-  if state.station_idx < #line.stations then
+  local line = state.data and state.data.lines[state.line_idx]
+  if line and state.station_idx < #line.stations then
     state.station_idx = state.station_idx + 1
     redraw()
   end
@@ -212,12 +306,10 @@ local function move_left()
 end
 
 local function move_down()
-  if not state.data then return end
-  if state.line_idx < #state.data.lines then
+  if state.data and state.line_idx < #state.data.lines then
     state.line_idx = state.line_idx + 1
-    -- Clamp station index to the new line's length
     local line = state.data.lines[state.line_idx]
-    state.station_idx = math.min(state.station_idx, #line.stations)
+    state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
     redraw()
   end
 end
@@ -226,160 +318,194 @@ local function move_up()
   if state.line_idx > 1 then
     state.line_idx = state.line_idx - 1
     local line = state.data.lines[state.line_idx]
-    state.station_idx = math.min(state.station_idx, #line.stations)
+    state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
     redraw()
   end
 end
 
-local info_popup_win = nil
+-- ─── Info popup ───────────────────────────────────────────────────────────────
 
-local function close_info_popup()
-  if info_popup_win and vim.api.nvim_win_is_valid(info_popup_win) then
-    vim.api.nvim_win_close(info_popup_win, true)
+local info_win = nil
+
+local function close_info()
+  if info_win and vim.api.nvim_win_is_valid(info_win) then
+    vim.api.nvim_win_close(info_win, true)
   end
-  info_popup_win = nil
+  info_win = nil
 end
 
 local function show_info()
   local st = current_station()
   if not st then return end
+  close_info()
 
-  close_info_popup()
+  local detail = fetch(config.server .. "/station/" .. st.id)
+  local connections = fetch(config.server .. "/connections?file="
+    .. vim.uri_encode(st.id:match("^(.+)::.+$") or ""))
 
-  -- Fetch rich detail from server
-  local url = config.server .. "/station/" .. st.id
-  local detail = fetch(url)
+  local W = 52
+  local rows = {}
 
-  local width = 60
-  local lines = {}
+  local function push(s) table.insert(rows, s) end
+  local function rule() push(string.rep("─", W - 2)) end
+  local function blank() push("") end
 
   if detail and not detail.error then
     -- Header
-    local kind = detail.kind or "function"
-    table.insert(lines, "  " .. detail.name .. "  [" .. kind .. "]")
-    table.insert(lines, string.rep("─", width - 2))
-    table.insert(lines, "")
+    push(pad_right(" " .. detail.name, W - #detail.kind - 3) .. detail.kind .. " ")
+    rule()
+    blank()
 
-    -- Summary
+    -- Summary (word-wrapped)
     local summary = (detail.summary ~= "" and detail.summary) or "(no summary)"
-    -- Word-wrap summary to fit width
-    local max_w = width - 4
-    while #summary > max_w do
-      local cut = summary:sub(1, max_w):match("^(.+)%s") or summary:sub(1, max_w)
-      table.insert(lines, "  " .. cut)
-      summary = summary:sub(#cut + 2)
+    for _, wline in ipairs(word_wrap(summary, W - 4)) do
+      push("  " .. wline)
     end
-    if summary ~= "" then table.insert(lines, "  " .. summary) end
-    table.insert(lines, "")
+    blank()
 
     -- Location
-    table.insert(lines, "  " .. detail.file .. ":" .. detail.line_start .. "–" .. detail.line_end)
-    table.insert(lines, "")
+    push("  " .. detail.file .. "  :" .. detail.line_start .. "–" .. detail.line_end)
+    blank()
 
-    -- Calls
+    -- Calls (outgoing)
     if detail.calls and #detail.calls > 0 then
-      table.insert(lines, "  Calls:")
+      push("  → Calls")
       for _, c in ipairs(detail.calls) do
-        local suffix = c.summary ~= "" and ("  — " .. c.summary:sub(1, 30)) or ""
-        table.insert(lines, "    → " .. c.name .. suffix)
+        local name = pad_right("    " .. c.name, 22)
+        local hint = c.summary ~= "" and c.summary:sub(1, W - 24) or ""
+        push(name .. (hint ~= "" and "  " .. hint or ""))
       end
-      table.insert(lines, "")
+      blank()
     end
 
-    -- Called by
+    -- Called by (incoming)
     if detail.called_by and #detail.called_by > 0 then
-      table.insert(lines, "  Called by:")
+      push("  ← Called by")
       for _, c in ipairs(detail.called_by) do
-        local loc = c.file ~= "" and ("  (" .. c.file .. ")") or ""
-        table.insert(lines, "    ← " .. c.name .. loc)
+        local name = pad_right("    " .. c.name, 22)
+        local loc  = c.file ~= "" and c.file:match("[^/]+$") or ""
+        push(name .. (loc ~= "" and "  " .. loc or ""))
       end
-      table.insert(lines, "")
+      blank()
+    end
+
+    -- Component connections (cross-file)
+    if connections and (
+      (#(connections.calls_into or {}) > 0) or
+      (#(connections.called_from or {}) > 0)
+    ) then
+      push("  ⬡ Component connections")
+      rule()
+      for _, link in ipairs(connections.calls_into or {}) do
+        push("  → " .. link.file_name)
+        for _, c in ipairs(link.connections) do
+          push("      " .. c.from_station .. " → " .. c.to_station)
+        end
+      end
+      for _, link in ipairs(connections.called_from or {}) do
+        push("  ← " .. link.file_name)
+        for _, c in ipairs(link.connections) do
+          push("      " .. c.from_station .. " → " .. c.to_station)
+        end
+      end
+      blank()
     end
   else
-    -- Fallback to basic summary from map data
-    table.insert(lines, "  " .. st.name)
-    table.insert(lines, string.rep("─", width - 2))
-    table.insert(lines, "")
-    table.insert(lines, "  " .. (st.summary ~= "" and st.summary or "(no summary)"))
-    table.insert(lines, "")
+    push(" " .. st.name)
+    rule()
+    blank()
+    push("  " .. (st.summary ~= "" and st.summary or "(no summary)"))
+    blank()
   end
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].filetype  = "metroscope-info"
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
 
-  local height = #lines
-  -- Position above the map window
-  local map_row = vim.api.nvim_win_get_position(state.win)[1]
-  local row = math.max(0, map_row - height - 2)
-  local col = math.floor((vim.o.columns - width) / 2)
+  -- Position to the right of the map window, or below if no room
+  local map_pos = vim.api.nvim_win_get_position(state.win)
+  local map_w   = vim.api.nvim_win_get_width(state.win)
+  local H = math.min(#rows, vim.o.lines - 4)
 
-  info_popup_win = vim.api.nvim_open_win(buf, false, {
+  local col = map_pos[2] + map_w + 1
+  if col + W > vim.o.columns then
+    col = math.max(0, vim.o.columns - W - 1)
+  end
+  local row = map_pos[1]
+
+  info_win = vim.api.nvim_open_win(buf, false, {
     relative  = "editor",
-    width     = width,
-    height    = height,
+    width     = W,
+    height    = H,
     row       = row,
     col       = col,
     style     = "minimal",
     border    = "rounded",
-    title     = " i ",
+    title     = "  " .. (st.name or "") .. "  ",
     title_pos = "center",
     focusable = false,
   })
 
-  -- Close when cursor moves in the map
+  -- Highlights in the info panel
+  local info_ns = vim.api.nvim_create_namespace("metroscope_info")
+  for i, line in ipairs(rows) do
+    if line:match("^  →") then
+      vim.api.nvim_buf_add_highlight(buf, info_ns, "Function",   i - 1, 0, -1)
+    elseif line:match("^  ←") then
+      vim.api.nvim_buf_add_highlight(buf, info_ns, "Identifier", i - 1, 0, -1)
+    elseif line:match("^  ⬡") then
+      vim.api.nvim_buf_add_highlight(buf, info_ns, "MetroscopeCrossLine", i - 1, 0, -1)
+    end
+  end
+
+  -- Auto-close on next navigation
   vim.api.nvim_create_autocmd("CursorMoved", {
-    buffer  = state.buf,
-    once    = true,
-    callback = close_info_popup,
+    buffer   = state.buf,
+    once     = true,
+    callback = close_info,
   })
 end
+
+-- ─── Jump to code ─────────────────────────────────────────────────────────────
 
 local function jump_to_code()
   local st = current_station()
   if not st then return end
 
-  -- Parse station id: "path/to/file.rs::fn_name"
-  local file, _ = st.id:match("^(.+)::.+$")
+  local file = st.id:match("^(.+)::.+$")
   if not file then return end
-
   local line_nr = st.line_start
 
-  -- Close the map first
   M.close()
 
-  -- Find a window that shows non-metroscope buffers, or open a split
   local target_win = nil
   for _, w in ipairs(vim.api.nvim_list_wins()) do
-    local buf = vim.api.nvim_win_get_buf(w)
-    if vim.bo[buf].filetype ~= "metroscope" then
+    if vim.bo[vim.api.nvim_win_get_buf(w)].filetype ~= "metroscope" then
       target_win = w
       break
     end
   end
+  if target_win then vim.api.nvim_set_current_win(target_win) end
 
-  if target_win then
-    vim.api.nvim_set_current_win(target_win)
-  end
-
-  -- Open the file
   vim.cmd("edit " .. vim.fn.fnameescape(file))
   vim.api.nvim_win_set_cursor(0, { line_nr, 0 })
   vim.cmd("normal! zz")
 end
 
+-- ─── Keymaps ──────────────────────────────────────────────────────────────────
+
 local function set_keymaps(buf)
   local function map(key, fn)
     vim.keymap.set("n", key, fn, { buffer = buf, nowait = true, silent = true })
   end
-  map("l",     move_right)
   map("h",     move_left)
+  map("l",     move_right)
   map("j",     move_down)
   map("k",     move_up)
   map("i",     show_info)
-  map("K",     show_info)   -- alias
+  map("K",     show_info)
   map("<CR>",  jump_to_code)
   map("q",     M.close)
   map("<Esc>", M.close)
@@ -388,6 +514,7 @@ end
 -- ─── Public API ───────────────────────────────────────────────────────────────
 
 function M.close()
+  close_info()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -395,12 +522,10 @@ function M.close()
   state.win = nil
 end
 
---- Open the metro map centered on the current cursor position.
 function M.open()
-  local file = vim.fn.expand("%:.")  -- relative path
+  local file = vim.fn.expand("%:.")
   local line = vim.fn.line(".")
-
-  local url = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line
+  local url  = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line
   local data = fetch(url)
 
   if not data then
@@ -408,53 +533,46 @@ function M.open()
     return
   end
 
-  state.data = data
-  state.line_idx = 1
+  state.data        = data
+  state.line_idx    = 1
   state.station_idx = 1
 
-  -- Find which line/station is focused
   if data.focused_station then
-    for li, line_data in ipairs(data.lines) do
-      for si, st in ipairs(line_data.stations) do
+    for li, ld in ipairs(data.lines) do
+      for si, st in ipairs(ld.stations) do
         if st.is_focused then
           state.line_idx    = li
           state.station_idx = si
-          break
         end
       end
     end
   end
 
+  setup_highlights()
   state.buf, state.win = open_window()
   set_keymaps(state.buf)
   redraw()
 end
 
---- Trigger re-indexing of a project.
 function M.index(project_root, api_key)
   project_root = project_root or vim.fn.getcwd()
   api_key      = api_key or vim.env.ANTHROPIC_API_KEY or ""
-
   local cmd = string.format(
     "metroscope-indexer index %s --api-key %s",
     vim.fn.shellescape(project_root),
     vim.fn.shellescape(api_key)
   )
-
-  -- Run in a terminal buffer so the user can watch progress
   vim.cmd("botright 15split | terminal " .. cmd)
 end
 
---- Setup keymaps.
 function M.setup(opts)
   opts = opts or {}
   if opts.server then config.server = opts.server end
-
   local leader = opts.leader or "<leader>m"
-  vim.keymap.set("n", leader .. "s", M.open,  { desc = "Metroscope: open map" })
+  vim.keymap.set("n", leader .. "s", M.open, { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "i", function()
     M.index(vim.fn.getcwd(), vim.env.ANTHROPIC_API_KEY)
-  end, { desc = "Metroscope: re-index project" })
+  end, { desc = "Metroscope: re-index" })
 end
 
 return M

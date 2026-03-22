@@ -18,10 +18,8 @@ use tower_http::cors::CorsLayer;
 #[derive(ClapParser)]
 #[command(name = "metroscope-server")]
 struct Cli {
-    /// Path to project root (must contain .metroscope/index.json)
     #[arg(long)]
     index_path: PathBuf,
-    /// Port to listen on
     #[arg(long, default_value = "7777")]
     port: u16,
 }
@@ -48,8 +46,8 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/map", get(handle_map))
-        // Wildcard so station ids with slashes work: /station/src/main.rs::foo
         .route("/station/*id", get(handle_station))
+        .route("/connections", get(handle_connections))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -62,6 +60,8 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+// ── /map ─────────────────────────────────────────────────────────────────────
+
 #[derive(Deserialize)]
 struct MapParams {
     file: String,
@@ -73,11 +73,11 @@ async fn handle_map(
     Query(params): Query<MapParams>,
 ) -> impl IntoResponse {
     let station = index.station_at(&params.file, params.line);
-    let response = map::build_map_response(&index, station);
-    Json(response)
+    Json(map::build_map_response(&index, station))
 }
 
-/// Resolved connection — name + optional summary for display
+// ── /station/:id ─────────────────────────────────────────────────────────────
+
 #[derive(Serialize)]
 struct ResolvedConnection {
     id: String,
@@ -97,7 +97,6 @@ struct StationDetail {
     summary: String,
     calls: Vec<ResolvedConnection>,
     called_by: Vec<ResolvedConnection>,
-    /// Summary of the file this station lives in
     line_summary: String,
 }
 
@@ -107,7 +106,7 @@ async fn handle_station(
 ) -> impl IntoResponse {
     let station = match index.stations.get(&id) {
         Some(s) => s,
-        None => return Json(serde_json::json!({ "error": "not found" })),
+        None => return Json(serde_json::json!({ "error": "not found", "id": id })),
     };
 
     let mut calls = Vec::new();
@@ -122,7 +121,6 @@ async fn handle_station(
                 file: target.location.file.clone(),
             }
         } else {
-            // Connection target not in index (external or unresolved name)
             ResolvedConnection {
                 id: conn.to.clone(),
                 name: conn.to.split("::").last().unwrap_or(&conn.to).to_string(),
@@ -144,7 +142,7 @@ async fn handle_station(
         .unwrap_or("")
         .to_string();
 
-    let detail = StationDetail {
+    Json(serde_json::to_value(StationDetail {
         id: station.id.clone(),
         name: station.name.clone(),
         kind: format!("{:?}", station.kind).to_lowercase(),
@@ -155,7 +153,19 @@ async fn handle_station(
         calls,
         called_by,
         line_summary,
-    };
+    }).unwrap())
+}
 
-    Json(serde_json::to_value(detail).unwrap())
+// ── /connections ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ConnectionsParams {
+    file: String,
+}
+
+async fn handle_connections(
+    State(index): State<AppState>,
+    Query(params): Query<ConnectionsParams>,
+) -> impl IntoResponse {
+    Json(map::build_file_connections(&index, &params.file))
 }
