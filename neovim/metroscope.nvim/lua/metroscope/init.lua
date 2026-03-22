@@ -23,9 +23,10 @@ end
 -- ─── State ────────────────────────────────────────────────────────────────────
 
 local state = {
-  buf      = nil,
-  win      = nil,
-  data     = nil,   -- MapResponse
+  buf         = nil,
+  win         = nil,
+  data        = nil,   -- MapResponse (function view) or ModuleMap (module view)
+  zoom        = "functions",  -- "functions" | "modules"
   line_idx    = 1,
   station_idx = 1,
 }
@@ -161,6 +162,62 @@ end
 -- Each line group = 4 rows (top, mid, bot, blank)
 local ROWS_PER_LINE = 4
 
+-- ─── Module map rendering ─────────────────────────────────────────────────────
+--
+-- Each module is a box showing name + station count.
+-- Connection indicators (│) are drawn between rows where modules connect.
+--
+--   [indexer/main]  ── main ⬡ ──────────────────────────────────
+--                          │
+--   [server/main]   ── map ── main ⬡
+--
+
+local function render_module_map(data)
+  if not data or not data.modules then return {} end
+
+  local modules = data.modules
+  local out = {}
+
+  -- Build a lookup: module id → display index (1-based)
+  local mod_idx = {}
+  for i, m in ipairs(modules) do mod_idx[m.id] = i end
+
+  for mi, m in ipairs(modules) do
+    local focused = (state.zoom == "modules" and state.line_idx == mi)
+    local label   = pad_right("[" .. m.name .. "]", LABEL_W)
+    local count   = "(" .. m.station_count .. ")"
+    local b, _    = box(m.name .. "  " .. count, focused, #m.calls_into > 0)
+
+    local lead   = 2
+    local indent = string.rep(" ", LABEL_W + 1 + lead)
+    local top_row = indent .. b[1]
+    local mid_row = label .. " " .. dashes(lead) .. b[2]
+    local bot_row = indent .. b[3]
+
+    -- Connection indicators: for each module this one calls into,
+    -- if the target is rendered below, show a │ connector row
+    local conn_rows = {}
+    for _, target_id in ipairs(m.calls_into) do
+      local ti = mod_idx[target_id]
+      if ti and ti > mi then
+        -- draw a vertical connector at the box column position
+        table.insert(conn_rows, indent .. "│  calls → " ..
+          (modules[ti] and modules[ti].name or target_id))
+      end
+    end
+
+    table.insert(out, top_row)
+    table.insert(out, mid_row)
+    table.insert(out, bot_row)
+    if #conn_rows > 0 then
+      for _, cr in ipairs(conn_rows) do table.insert(out, cr) end
+    end
+    table.insert(out, "")
+  end
+
+  return out
+end
+
 -- ─── Window ───────────────────────────────────────────────────────────────────
 
 local function open_window()
@@ -185,7 +242,7 @@ local function open_window()
     border    = "rounded",
     title     = " ⬡ Metroscope ",
     title_pos = "center",
-    footer    = "  i:info  <CR>:jump  h/l:move  j/k:line  q:close  ",
+    footer    = "  i:info  <CR>:jump  h/l:move  j/k:line  b:modules  q:close  ",
     footer_pos = "center",
   })
 
@@ -213,22 +270,16 @@ local function apply_highlights()
   if not state.buf or not state.data then return end
   vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
 
-  for li, line in ipairs(state.data.lines) do
-    local base = (li - 1) * ROWS_PER_LINE  -- 0-based row of top border
+  if state.zoom == "modules" then
+    -- Module view: highlight focused module box and connection indicators
+    for mi, m in ipairs(state.data.modules or {}) do
+      local base = (mi - 1) * ROWS_PER_LINE
+      local mid_row = base + 1
+      local hl_name = "MetroscopeLine" .. mi
+      vim.api.nvim_set_hl(0, hl_name, { fg = m.color, bold = true })
+      vim.api.nvim_buf_add_highlight(state.buf, ns, hl_name, mid_row, 0, LABEL_W)
 
-    -- Color the label on the middle row
-    local mid_row = base + 1
-    local hl_name = "MetroscopeLine" .. li
-    vim.api.nvim_set_hl(0, hl_name, { fg = line.color, bold = true })
-    vim.api.nvim_buf_add_highlight(state.buf, ns, hl_name, mid_row, 0, LABEL_W)
-
-    -- Highlight focused box and cross-line markers
-    for si, st in ipairs(line.stations) do
-      local focused = st.is_focused and state.line_idx == li and state.station_idx == si
-
-      if focused then
-        -- Find the focused box by locating ╔ on the top row (unique per focused box).
-        -- Then use the same byte-column span on all 3 rows.
+      if state.line_idx == mi then
         local top_text = vim.api.nvim_buf_get_lines(state.buf, base, base + 1, false)[1] or ""
         local open_b = top_text:find("╔", 1, true)
         if open_b then
@@ -246,7 +297,50 @@ local function apply_highlights()
         end
       end
 
-      -- Highlight ⬡ cross-line symbol (may appear multiple times per line)
+      -- Highlight ⬡ and │ connection indicators
+      local mid_text = vim.api.nvim_buf_get_lines(state.buf, mid_row, mid_row + 1, false)[1] or ""
+      local pos = 1
+      while true do
+        local s = mid_text:find(CROSS_SYM, pos, true)
+        if not s then break end
+        vim.api.nvim_buf_add_highlight(state.buf, ns, "MetroscopeCrossLine", mid_row, s - 1, s - 1 + #CROSS_SYM)
+        pos = s + #CROSS_SYM
+      end
+    end
+    return
+  end
+
+  for li, line in ipairs(state.data.lines or {}) do
+    local base = (li - 1) * ROWS_PER_LINE  -- 0-based row of top border
+
+    -- Color the label on the middle row
+    local mid_row = base + 1
+    local hl_name = "MetroscopeLine" .. li
+    vim.api.nvim_set_hl(0, hl_name, { fg = line.color, bold = true })
+    vim.api.nvim_buf_add_highlight(state.buf, ns, hl_name, mid_row, 0, LABEL_W)
+
+    -- Highlight focused box and cross-line markers
+    for si, st in ipairs(line.stations) do
+      local focused = (state.line_idx == li and state.station_idx == si)
+
+      if focused then
+        local top_text = vim.api.nvim_buf_get_lines(state.buf, base, base + 1, false)[1] or ""
+        local open_b = top_text:find("╔", 1, true)
+        if open_b then
+          local close_b = top_text:find("╗", open_b + #"╔", true)
+          if close_b then
+            local col_start = open_b - 1
+            local col_end   = close_b - 1 + #"╗"
+            for row_off = 0, 2 do
+              vim.api.nvim_buf_add_highlight(
+                state.buf, ns, "MetroscopeFocusedBox",
+                base + row_off, col_start, col_end
+              )
+            end
+          end
+        end
+      end
+
       if st.has_cross_line then
         local mid_text = vim.api.nvim_buf_get_lines(state.buf, base + 1, base + 2, false)[1] or ""
         local pos = 1
@@ -269,7 +363,10 @@ end
 local function redraw()
   if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then return end
 
-  local rendered = render_map(state.data)
+  setup_highlights()
+  local rendered = state.zoom == "modules"
+    and render_module_map(state.data)
+    or  render_map(state.data)
 
   vim.bo[state.buf].modifiable = true
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, rendered)
@@ -277,6 +374,8 @@ local function redraw()
 
   -- Scroll to focused line (middle row of the line group)
   local target = (state.line_idx - 1) * ROWS_PER_LINE + 2
+  local max_lines = vim.api.nvim_buf_line_count(state.buf)
+  target = math.min(target, math.max(1, max_lines))
   if vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_set_cursor(state.win, { target, 0 })
   end
@@ -295,9 +394,20 @@ end
 
 local function move_right()
   local line = state.data and state.data.lines[state.line_idx]
-  if line and state.station_idx < #line.stations then
+  if not line then return end
+  if state.station_idx < #line.stations then
     state.station_idx = state.station_idx + 1
     redraw()
+  else
+    -- at right edge — re-fetch centered on current station to scroll right
+    local st = current_station()
+    if st and refetch_at(st) then
+      local new_line = state.data.lines[state.line_idx]
+      if new_line and state.station_idx < #new_line.stations then
+        state.station_idx = state.station_idx + 1
+      end
+      redraw()
+    end
   end
 end
 
@@ -305,24 +415,94 @@ local function move_left()
   if state.station_idx > 1 then
     state.station_idx = state.station_idx - 1
     redraw()
+  else
+    -- at left edge — re-fetch centered on current station to scroll left
+    local st = current_station()
+    if st and refetch_at(st) then
+      if state.station_idx > 1 then
+        state.station_idx = state.station_idx - 1
+      end
+      redraw()
+    end
   end
 end
 
+-- Re-fetch map centered on the given station (file + line_start)
+local function refetch_at(st)
+  local file = st.id:match("^(.+)::.+$") or ""
+  local url = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. st.line_start
+  local data = fetch(url)
+  if not data then return false end
+  state.data = data
+  -- find the new position of the focused station
+  for li, ld in ipairs(data.lines) do
+    for si, sv in ipairs(ld.stations) do
+      if sv.id == st.id then
+        state.line_idx    = li
+        state.station_idx = si
+        return true
+      end
+    end
+  end
+  return true
+end
+
 local function move_down()
-  if state.data and state.line_idx < #state.data.lines then
+  if not state.data then return end
+  -- Module view: simple bounded scroll (all modules always loaded)
+  if state.zoom == "modules" then
+    local n = #(state.data.modules or {})
+    if state.line_idx < n then
+      state.line_idx = state.line_idx + 1
+      redraw()
+    end
+    return
+  end
+  if state.line_idx < #state.data.lines then
     state.line_idx = state.line_idx + 1
     local line = state.data.lines[state.line_idx]
     state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
     redraw()
+  else
+    -- at bottom edge — re-fetch centered on current station to scroll window down
+    local st = current_station()
+    if st and refetch_at(st) then
+      if state.line_idx < #state.data.lines then
+        state.line_idx = state.line_idx + 1
+        local line = state.data.lines[state.line_idx]
+        state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
+      end
+      redraw()
+    end
   end
 end
 
 local function move_up()
+  if not state.data then return end
+  -- Module view: simple bounded scroll
+  if state.zoom == "modules" then
+    if state.line_idx > 1 then
+      state.line_idx = state.line_idx - 1
+      redraw()
+    end
+    return
+  end
   if state.line_idx > 1 then
     state.line_idx = state.line_idx - 1
     local line = state.data.lines[state.line_idx]
     state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
     redraw()
+  else
+    -- at top edge — re-fetch centered on current station to scroll window up
+    local st = current_station()
+    if st and refetch_at(st) then
+      if state.line_idx > 1 then
+        state.line_idx = state.line_idx - 1
+        local line = state.data.lines[state.line_idx]
+        state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
+      end
+      redraw()
+    end
   end
 end
 
@@ -591,6 +771,44 @@ end
 
 -- ─── Keymaps ──────────────────────────────────────────────────────────────────
 
+local function zoom_to_modules()
+  local data = fetch(config.server .. "/module-map")
+  if not data then
+    vim.notify("Metroscope: could not fetch module map", vim.log.levels.ERROR)
+    return
+  end
+  state.zoom        = "modules"
+  state.data        = data
+  state.line_idx    = 1
+  state.station_idx = 1
+  -- update footer hint
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_set_config(state.win, {
+      footer     = "  i:info  <CR>:zoom-in  j/k:move  b:functions  q:close  ",
+      footer_pos = "center",
+    })
+  end
+  redraw()
+end
+
+local function zoom_to_functions(crate_id)
+  -- crate_id is e.g. "metroscope-indexer"; filter the map to just that crate's files
+  local url = config.server .. "/map?crate=" .. vim.uri_encode(crate_id)
+  local data = fetch(url)
+  if not data then return end
+  state.zoom        = "functions"
+  state.data        = data
+  state.line_idx    = 1
+  state.station_idx = 1
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_set_config(state.win, {
+      footer     = "  i:info  <CR>:jump  h/l:move  j/k:line  b:modules  q:close  ",
+      footer_pos = "center",
+    })
+  end
+  redraw()
+end
+
 local function set_keymaps(buf)
   local function map(key, fn)
     vim.keymap.set("n", key, fn, { buffer = buf, nowait = true, silent = true })
@@ -606,7 +824,24 @@ local function set_keymaps(buf)
       vim.api.nvim_set_current_win(info_win)
     end
   end)
-  map("<CR>",  jump_to_code)
+  map("b", function()
+    if state.zoom == "functions" then
+      zoom_to_modules()
+    else
+      -- zoom back to functions for the currently focused module
+      local m = state.data and state.data.modules and state.data.modules[state.line_idx]
+      if m then zoom_to_functions(m.id)
+      else zoom_to_functions("") end
+    end
+  end)
+  map("<CR>", function()
+    if state.zoom == "modules" then
+      local m = state.data and state.data.modules and state.data.modules[state.line_idx]
+      if m then zoom_to_functions(m.id) end
+    else
+      jump_to_code()
+    end
+  end)
   map("q",     M.close)
   map("<Esc>", M.close)
 end

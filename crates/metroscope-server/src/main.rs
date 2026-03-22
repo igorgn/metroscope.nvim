@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/map", get(handle_map))
+        .route("/module-map", get(handle_module_map))
         .route("/station/*id", get(handle_station))
         .route("/connections", get(handle_connections))
         .layer(CorsLayer::permissive())
@@ -64,16 +65,22 @@ async fn main() -> Result<()> {
 
 #[derive(Deserialize)]
 struct MapParams {
-    file: String,
-    line: u32,
+    file: Option<String>,
+    line: Option<u32>,
+    /// If set, only show lines belonging to this crate id (e.g. "metroscope-indexer")
+    #[serde(rename = "crate")]
+    crate_filter: Option<String>,
 }
 
 async fn handle_map(
     State(index): State<AppState>,
     Query(params): Query<MapParams>,
 ) -> impl IntoResponse {
-    let station = index.station_at(&params.file, params.line);
-    Json(map::build_map_response(&index, station))
+    let station = match (&params.file, params.line) {
+        (Some(f), Some(l)) => index.station_at(f, l),
+        _ => None,
+    };
+    Json(map::build_map_response(&index, station, params.crate_filter.as_deref()))
 }
 
 // ── /station/:id ─────────────────────────────────────────────────────────────
@@ -174,4 +181,10 @@ async fn handle_connections(
     Query(params): Query<ConnectionsParams>,
 ) -> impl IntoResponse {
     Json(map::build_file_connections(&index, &params.file))
+}
+
+// ── /module-map ───────────────────────────────────────────────────────────────
+
+async fn handle_module_map(State(index): State<AppState>) -> impl IntoResponse {
+    Json(map::build_module_map(&index))
 }

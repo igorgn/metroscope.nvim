@@ -4,6 +4,38 @@ use std::path::Path;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Parser, Query, QueryCursor};
 
+/// Build a display name for a file that disambiguates common names like "main" or "lib".
+/// "crates/metroscope-indexer/src/main.rs" → "indexer/main"
+/// "src/main.rs" → "main"
+/// "crates/foo/src/bar.rs" → "foo/bar"
+fn disambiguate_name(file_id: &str) -> String {
+    let path = Path::new(file_id);
+    let stem = path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file_id.to_string());
+
+    // Find parent dir — if it's "src", go one level higher for the crate name
+    let parent = path.parent();
+    let crate_name = parent.and_then(|p| {
+        let dir = p.file_name()?.to_string_lossy();
+        if dir == "src" {
+            // go up one more: crates/metroscope-indexer/src → metroscope-indexer
+            p.parent()?.file_name().map(|n| {
+                let s = n.to_string_lossy();
+                // strip common prefixes like "metroscope-"
+                s.splitn(2, '-').nth(1).unwrap_or(&s).to_string()
+            })
+        } else {
+            None
+        }
+    });
+
+    match crate_name {
+        Some(crate_name) if crate_name != stem => format!("{}/{}", crate_name, stem),
+        _ => stem,
+    }
+}
+
 use super::{LanguageParser, ParsedFile, ParsedFunction};
 
 pub struct RustParser {
@@ -29,10 +61,7 @@ impl LanguageParser for RustParser {
             .parse(source, None)
             .context("tree-sitter parse returned None")?;
 
-        let file_name = Path::new(file_id)
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| file_id.to_string());
+        let file_name = disambiguate_name(file_id);
 
         let functions = extract_functions(source, file_id, tree.root_node())?;
 
