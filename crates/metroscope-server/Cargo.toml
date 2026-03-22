@@ -1,0 +1,18 @@
+[package]
+name = "metroscope-server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "metroscope-server"
+path = "src/main.rs"
+
+[dependencies]
+metroscope-types = { path = "../metroscope-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+axum = { version = "0.7", features = ["json"] }
+tower-http = { version = "0.5", features = ["cors"] }
+clap = { version = "4", features = ["derive"] }
