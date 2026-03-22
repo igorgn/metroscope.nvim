@@ -15,6 +15,11 @@ pub enum StationKind {
     Function,
     Method,
     Closure,
+    Struct,
+    Trait,
+    Enum,
+    Impl,
+    Module,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -26,14 +31,15 @@ pub enum ConnectionKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {
+    /// Station id this connection points to
     pub to: String,
     pub kind: ConnectionKind,
 }
 
-/// A Station represents a single function/method in the codebase.
+/// A Station represents a single function/method/struct in the codebase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Station {
-    /// Unique id: "relative/path/to/file.rs::fn_name"
+    /// Unique id: "relative/path/to/file.rs::symbol_name"
     pub id: String,
     pub name: String,
     pub kind: StationKind,

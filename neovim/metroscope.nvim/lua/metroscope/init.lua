@@ -231,31 +231,92 @@ local function move_up()
   end
 end
 
-local function show_summary()
+local info_popup_win = nil
+
+local function close_info_popup()
+  if info_popup_win and vim.api.nvim_win_is_valid(info_popup_win) then
+    vim.api.nvim_win_close(info_popup_win, true)
+  end
+  info_popup_win = nil
+end
+
+local function show_info()
   local st = current_station()
   if not st then return end
 
-  local lines = {
-    "  " .. st.name .. "  ",
-    string.rep("─", 50),
-    "",
-    "  " .. (st.summary ~= "" and st.summary or "(no summary)"),
-    "",
-  }
+  close_info_popup()
 
-  -- Show in a small floating window
+  -- Fetch rich detail from server
+  local url = config.server .. "/station/" .. st.id
+  local detail = fetch(url)
+
+  local width = 60
+  local lines = {}
+
+  if detail and not detail.error then
+    -- Header
+    local kind = detail.kind or "function"
+    table.insert(lines, "  " .. detail.name .. "  [" .. kind .. "]")
+    table.insert(lines, string.rep("─", width - 2))
+    table.insert(lines, "")
+
+    -- Summary
+    local summary = (detail.summary ~= "" and detail.summary) or "(no summary)"
+    -- Word-wrap summary to fit width
+    local max_w = width - 4
+    while #summary > max_w do
+      local cut = summary:sub(1, max_w):match("^(.+)%s") or summary:sub(1, max_w)
+      table.insert(lines, "  " .. cut)
+      summary = summary:sub(#cut + 2)
+    end
+    if summary ~= "" then table.insert(lines, "  " .. summary) end
+    table.insert(lines, "")
+
+    -- Location
+    table.insert(lines, "  " .. detail.file .. ":" .. detail.line_start .. "–" .. detail.line_end)
+    table.insert(lines, "")
+
+    -- Calls
+    if detail.calls and #detail.calls > 0 then
+      table.insert(lines, "  Calls:")
+      for _, c in ipairs(detail.calls) do
+        local suffix = c.summary ~= "" and ("  — " .. c.summary:sub(1, 30)) or ""
+        table.insert(lines, "    → " .. c.name .. suffix)
+      end
+      table.insert(lines, "")
+    end
+
+    -- Called by
+    if detail.called_by and #detail.called_by > 0 then
+      table.insert(lines, "  Called by:")
+      for _, c in ipairs(detail.called_by) do
+        local loc = c.file ~= "" and ("  (" .. c.file .. ")") or ""
+        table.insert(lines, "    ← " .. c.name .. loc)
+      end
+      table.insert(lines, "")
+    end
+  else
+    -- Fallback to basic summary from map data
+    table.insert(lines, "  " .. st.name)
+    table.insert(lines, string.rep("─", width - 2))
+    table.insert(lines, "")
+    table.insert(lines, "  " .. (st.summary ~= "" and st.summary or "(no summary)"))
+    table.insert(lines, "")
+  end
+
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].filetype  = "metroscope-info"
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
-  local width = 54
   local height = #lines
-  local row = vim.api.nvim_win_get_position(state.win)[1] - height - 2
-  if row < 0 then row = 2 end
+  -- Position above the map window
+  local map_row = vim.api.nvim_win_get_position(state.win)[1]
+  local row = math.max(0, map_row - height - 2)
   local col = math.floor((vim.o.columns - width) / 2)
 
-  local popup = vim.api.nvim_open_win(buf, false, {
+  info_popup_win = vim.api.nvim_open_win(buf, false, {
     relative  = "editor",
     width     = width,
     height    = height,
@@ -263,15 +324,17 @@ local function show_summary()
     col       = col,
     style     = "minimal",
     border    = "rounded",
+    title     = " i ",
+    title_pos = "center",
     focusable = false,
   })
 
-  -- Auto-close after 4s or on any keypress in the map
-  vim.defer_fn(function()
-    if vim.api.nvim_win_is_valid(popup) then
-      vim.api.nvim_win_close(popup, true)
-    end
-  end, 4000)
+  -- Close when cursor moves in the map
+  vim.api.nvim_create_autocmd("CursorMoved", {
+    buffer  = state.buf,
+    once    = true,
+    callback = close_info_popup,
+  })
 end
 
 local function jump_to_code()
@@ -315,7 +378,8 @@ local function set_keymaps(buf)
   map("h",     move_left)
   map("j",     move_down)
   map("k",     move_up)
-  map("K",     show_summary)
+  map("i",     show_info)
+  map("K",     show_info)   -- alias
   map("<CR>",  jump_to_code)
   map("q",     M.close)
   map("<Esc>", M.close)

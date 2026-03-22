@@ -11,7 +11,7 @@ use axum::{
     Json, Router,
 };
 use clap::Parser as ClapParser;
-use metroscope_types::{Index, Station};
+use metroscope_types::{ConnectionKind, Index};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
@@ -48,7 +48,8 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/map", get(handle_map))
-        .route("/station/{id}", get(handle_station))
+        // Wildcard so station ids with slashes work: /station/src/main.rs::foo
+        .route("/station/{*id}", get(handle_station))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -76,21 +77,85 @@ async fn handle_map(
     Json(response)
 }
 
-#[derive(Deserialize)]
-struct StationPath {
+/// Resolved connection — name + optional summary for display
+#[derive(Serialize)]
+struct ResolvedConnection {
     id: String,
+    name: String,
+    summary: String,
+    file: String,
 }
 
 #[derive(Serialize)]
-struct StationResponse {
-    station: Option<Station>,
+struct StationDetail {
+    id: String,
+    name: String,
+    kind: String,
+    file: String,
+    line_start: u32,
+    line_end: u32,
+    summary: String,
+    calls: Vec<ResolvedConnection>,
+    called_by: Vec<ResolvedConnection>,
+    /// Summary of the file this station lives in
+    line_summary: String,
 }
 
 async fn handle_station(
     State(index): State<AppState>,
-    Path(params): Path<StationPath>,
+    Path(id): Path<String>,
 ) -> impl IntoResponse {
-    // The id in the URL uses '/' separators; axum captures the full path segment
-    let station = index.stations.get(&params.id).cloned();
-    Json(StationResponse { station })
+    let station = match index.stations.get(&id) {
+        Some(s) => s,
+        None => return Json(serde_json::json!({ "error": "not found" })),
+    };
+
+    let mut calls = Vec::new();
+    let mut called_by = Vec::new();
+
+    for conn in &station.connections {
+        let resolved = if let Some(target) = index.stations.get(&conn.to) {
+            ResolvedConnection {
+                id: target.id.clone(),
+                name: target.name.clone(),
+                summary: target.summary.clone(),
+                file: target.location.file.clone(),
+            }
+        } else {
+            // Connection target not in index (external or unresolved name)
+            ResolvedConnection {
+                id: conn.to.clone(),
+                name: conn.to.split("::").last().unwrap_or(&conn.to).to_string(),
+                summary: String::new(),
+                file: String::new(),
+            }
+        };
+
+        match conn.kind {
+            ConnectionKind::Calls => calls.push(resolved),
+            ConnectionKind::CalledBy => called_by.push(resolved),
+        }
+    }
+
+    let line_summary = index
+        .lines
+        .get(&station.line_id)
+        .map(|l| l.summary.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let detail = StationDetail {
+        id: station.id.clone(),
+        name: station.name.clone(),
+        kind: format!("{:?}", station.kind).to_lowercase(),
+        file: station.location.file.clone(),
+        line_start: station.location.line_start,
+        line_end: station.location.line_end,
+        summary: station.summary.clone(),
+        calls,
+        called_by,
+        line_summary,
+    };
+
+    Json(serde_json::to_value(detail).unwrap())
 }

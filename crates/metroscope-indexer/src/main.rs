@@ -1,6 +1,7 @@
 mod parser;
 mod llm;
 mod color;
+mod serena;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -31,6 +32,10 @@ enum Command {
         /// Anthropic API key. If omitted, the `claude` CLI is used instead.
         #[arg(long, env = "ANTHROPIC_API_KEY")]
         api_key: Option<String>,
+        /// Path to the Serena repo for LSP-accurate call graph enrichment (optional).
+        /// Example: --serena-dir ~/tools/serena
+        #[arg(long, env = "SERENA_DIR")]
+        serena_dir: Option<PathBuf>,
     },
 }
 
@@ -38,7 +43,7 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Index { path, api_key } => {
+        Command::Index { path, api_key, serena_dir } => {
             let backend = match api_key {
                 Some(key) => LlmBackend::Api { key },
                 None => {
@@ -46,12 +51,16 @@ async fn main() -> Result<()> {
                     LlmBackend::Cli
                 }
             };
-            index_project(&path, &backend).await
+            index_project(&path, &backend, serena_dir.as_deref()).await
         }
     }
 }
 
-async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> {
+async fn index_project(
+    project_root: &Path,
+    backend: &LlmBackend,
+    serena_dir: Option<&Path>,
+) -> Result<()> {
     let project_root = project_root
         .canonicalize()
         .context("Failed to canonicalize project root")?;
@@ -96,7 +105,7 @@ async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> 
     println!("Generating summaries with Claude...");
     let summaries = llm::generate_summaries(&parsed_files, backend).await?;
 
-    // Build index
+    // Build initial stations (outgoing calls from tree-sitter)
     let mut stations: HashMap<String, Station> = HashMap::new();
     let mut lines: HashMap<String, Line> = HashMap::new();
     let mut entry_points: Vec<String> = Vec::new();
@@ -111,14 +120,13 @@ async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> 
             .cloned()
             .unwrap_or_default();
 
-        let line = Line {
+        lines.insert(pf.file_id.clone(), Line {
             id: pf.file_id.clone(),
             name: pf.file_name.clone(),
             color: line_color,
             summary: line_summary,
             stations: station_ids,
-        };
-        lines.insert(pf.file_id.clone(), line);
+        });
 
         for func in &pf.functions {
             let summary = summaries
@@ -127,7 +135,6 @@ async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> 
                 .cloned()
                 .unwrap_or_default();
 
-            // Build connections from call graph
             let connections: Vec<Connection> = func
                 .calls
                 .iter()
@@ -141,7 +148,7 @@ async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> 
                 entry_points.push(func.id.clone());
             }
 
-            let station = Station {
+            stations.insert(func.id.clone(), Station {
                 id: func.id.clone(),
                 name: func.name.clone(),
                 kind: func.kind.clone(),
@@ -149,8 +156,43 @@ async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> 
                 summary,
                 connections,
                 line_id: pf.file_id.clone(),
-            };
-            stations.insert(func.id.clone(), station);
+            });
+        }
+    }
+
+    // Optionally enrich with Serena (CalledBy connections)
+    if let Some(serena_dir) = serena_dir {
+        let serena_dir = serena_dir
+            .canonicalize()
+            .context("Failed to canonicalize --serena-dir")?;
+
+        println!("Enriching with Serena (LSP call graph)...");
+        let all_ids: Vec<String> = stations.keys().cloned().collect();
+
+        match serena::enrich(&project_root, &all_ids, &serena_dir).await {
+            Ok(serena_index) => {
+                let mut added = 0usize;
+                for (station_id, callers) in serena_index.callers {
+                    if let Some(station) = stations.get_mut(&station_id) {
+                        for caller in callers {
+                            // Resolve caller name_path to a station id if possible
+                            // name_path is like "/fn_name" — match by name within the caller's file
+                            let caller_name = caller.name_path.trim_start_matches('/');
+                            let caller_id = format!("{}::{}", caller.relative_path, caller_name);
+                            station.connections.push(Connection {
+                                to: caller_id,
+                                kind: ConnectionKind::CalledBy,
+                            });
+                            added += 1;
+                        }
+                    }
+                }
+                println!("  Added {added} CalledBy connections from Serena");
+            }
+            Err(e) => {
+                eprintln!("  Warning: Serena enrichment failed: {e}");
+                eprintln!("  Continuing with tree-sitter call graph only");
+            }
         }
     }
 
@@ -166,19 +208,13 @@ async fn index_project(project_root: &Path, backend: &LlmBackend) -> Result<()> 
         entry_points,
     };
 
-    // Write index
     let index_dir = project_root.join(".metroscope");
     std::fs::create_dir_all(&index_dir)?;
     let index_path = index_dir.join("index.json");
-    let json = serde_json::to_string_pretty(&index)?;
-    std::fs::write(&index_path, json)?;
+    std::fs::write(&index_path, serde_json::to_string_pretty(&index)?)?;
 
     println!("Index written to {}", index_path.display());
-    println!(
-        "  {} stations, {} lines",
-        index.stations.len(),
-        index.lines.len()
-    );
+    println!("  {} stations, {} lines", index.stations.len(), index.lines.len());
 
     Ok(())
 }
