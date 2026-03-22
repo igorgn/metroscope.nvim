@@ -33,11 +33,20 @@ local state = {
   buf          = nil,
   win          = nil,
   data         = nil,   -- MapResponse (function view) or ModuleMap (module view)
-  zoom         = "functions",  -- "functions" | "modules"
+  zoom         = "functions",  -- "functions" | "modules" | "stations"
   crate_filter = nil,   -- when set, function view is scoped to this crate id
   line_idx     = 1,
   station_idx  = 1,
   info_pinned  = false, -- when true, info popup stays open and updates on navigation
+  project_root = nil,   -- absolute path to project root (from server response)
+  -- station list view state
+  sl_stations  = nil,   -- list of station objects for the current component
+  sl_idx       = 1,     -- focused station index in the list
+  sl_list_buf  = nil,
+  sl_list_win  = nil,
+  sl_prev_buf  = nil,
+  sl_prev_win  = nil,
+  dim_win      = nil,   -- background dim window
 }
 
 -- ─── Layout constants ─────────────────────────────────────────────────────────
@@ -229,6 +238,25 @@ end
 
 -- ─── Window ───────────────────────────────────────────────────────────────────
 
+local function open_dim_win()
+  vim.api.nvim_set_hl(0, "MetroscopeDim", { bg = "#000000" })
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].buftype   = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    width    = vim.o.columns,
+    height   = vim.o.lines,
+    row      = 0,
+    col      = 0,
+    style    = "minimal",
+    zindex   = 10,
+  })
+  vim.wo[win].winblend = 70
+  vim.api.nvim_win_set_option(win, "winhighlight", "Normal:MetroscopeDim")
+  return win
+end
+
 local function open_window()
   local width  = math.floor(vim.o.columns * 0.90)
   local height = math.floor(vim.o.lines   * 0.55)
@@ -251,8 +279,9 @@ local function open_window()
     border    = "rounded",
     title     = " ⬡ Metroscope ",
     title_pos = "center",
-    footer    = "  i:info  <CR>:jump  h/l:move  j/k:line  b:modules  q:close  ",
+    footer    = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
     footer_pos = "center",
+    zindex    = 50,
   })
 
   vim.wo[win].wrap       = false
@@ -363,6 +392,9 @@ local function apply_highlights()
   end
 end
 
+-- Forward declaration (defined later, after info popup code)
+local show_info
+
 -- ─── Redraw ───────────────────────────────────────────────────────────────────
 
 local function redraw()
@@ -389,7 +421,7 @@ local function redraw()
 
   -- If info is pinned, refresh it for the new position
   if state.info_pinned then
-    vim.schedule(show_info)
+    vim.schedule(function() show_info() end)
   end
 end
 
@@ -547,6 +579,26 @@ local function build_info_rows(title, summary, file_id, detail, connections)
   return rows, W, jump_targets
 end
 
+-- Compute the buffer column just past the right edge of the focused station box.
+-- Used to place the info popup right beside the box.
+local function focused_box_right_col()
+  if not state.data then return LABEL_W + 1 + 2 end
+  local line = state.data.lines and state.data.lines[state.line_idx]
+  if not line or #line.stations == 0 then return LABEL_W + 1 + 2 end
+
+  local col = LABEL_W + 1 + 2  -- indent: label + space + 2 leading dashes
+  for si, st in ipairs(line.stations) do
+    local label = st.has_cross_line and (st.name .. " " .. CROSS_SYM) or st.name
+    local inner = math.max(vim.fn.strdisplaywidth(label) + 2, BOX_MIN)
+    local w = inner + 2  -- total box width including borders
+    if si == state.station_idx then
+      return col + w  -- right edge of focused box
+    end
+    col = col + w + PAD  -- advance past this box + separator
+  end
+  return col
+end
+
 local function open_info_popup(title, rows, W, jump_targets)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
@@ -554,18 +606,39 @@ local function open_info_popup(title, rows, W, jump_targets)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
   vim.bo[buf].modifiable = false
 
-  local map_pos = vim.api.nvim_win_get_position(state.win)
-  local map_w   = vim.api.nvim_win_get_width(state.win)
   local H = math.min(#rows, vim.o.lines - 4)
-  local col = map_pos[2] + map_w + 1
-  if col + W > vim.o.columns then col = math.max(0, vim.o.columns - W - 1) end
+
+  -- Place popup relative to the map window cursor (which sits on the mid row
+  -- of the focused box). col offset = right edge of the focused box + 1 gap.
+  -- row = 0 means same line as cursor (the box mid row); anchor NW.
+  local box_right = focused_box_right_col()
+  -- Check if there's room to the right; if not, place to the left of the box.
+  local map_w   = vim.api.nvim_win_get_width(state.win)
+  local map_pos = vim.api.nvim_win_get_position(state.win)
+  local screen_col = map_pos[2] + 1 + box_right  -- +1 for left border
+  local col_offset, anchor
+  if screen_col + W + 1 <= vim.o.columns then
+    col_offset = box_right + 1   -- 1 cell gap after the box
+    anchor     = "NW"
+  else
+    -- Not enough room on the right — show to the left of the start of boxes
+    local box_left = LABEL_W + 1 + 2
+    col_offset = math.max(0, box_left - W - 2)
+    anchor     = "NW"
+  end
+
+  -- Row: cursor is on mid row of focused box (row 1 of the 3-row group).
+  -- We want the popup top to align with the top border of the box (row above cursor).
+  local row_offset = -1  -- one row above cursor = top border of the box
 
   info_win = vim.api.nvim_open_win(buf, false, {
-    relative  = "editor",
+    relative  = "win",
+    win       = state.win,
     width     = W,
     height    = H,
-    row       = map_pos[1],
-    col       = col,
+    row       = row_offset,
+    col       = col_offset,
+    anchor    = anchor,
     style     = "minimal",
     border    = "rounded",
     title     = "  " .. title .. "  ",
@@ -706,7 +779,7 @@ local function build_module_info_rows(m)
   return rows, W, jump_targets
 end
 
-local function show_info()
+show_info = function()
   close_info()
 
   -- Module view: show crate-level info
@@ -782,7 +855,7 @@ local function zoom_to_modules()
   -- update footer hint
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_set_config(state.win, {
-      footer     = "  i:info  <CR>:zoom-in  j/k:move  b:functions  q:close  ",
+      footer     = "  i:info  <CR>:components  j/k:move  q:close  ",
       footer_pos = "center",
     })
   end
@@ -799,13 +872,223 @@ local function zoom_to_functions(crate_id)
   state.crate_filter = crate_id
   state.line_idx     = 1
   state.station_idx  = 1
+  if data.project_root then state.project_root = data.project_root end
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_set_config(state.win, {
-      footer     = "  i:info  <CR>:jump  h/l:move  j/k:line  b:modules  q:close  ",
+      footer     = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
       footer_pos = "center",
     })
   end
   redraw()
+end
+
+-- ─── Station list (zoom level 3) ──────────────────────────────────────────────
+
+local function close_station_list()
+  if state.sl_prev_win and vim.api.nvim_win_is_valid(state.sl_prev_win) then
+    vim.api.nvim_win_close(state.sl_prev_win, true)
+  end
+  if state.sl_list_win and vim.api.nvim_win_is_valid(state.sl_list_win) then
+    vim.api.nvim_win_close(state.sl_list_win, true)
+  end
+  state.sl_prev_win = nil; state.sl_prev_buf = nil
+  state.sl_list_win = nil; state.sl_list_buf = nil
+  state.sl_stations = nil
+end
+
+local function sl_update_preview()
+  local st = state.sl_stations and state.sl_stations[state.sl_idx]
+  if not st or not state.sl_prev_win then return end
+  if not vim.api.nvim_win_is_valid(state.sl_prev_win) then return end
+
+  local abs_file = (state.project_root or "") .. "/" .. (st.id:match("^(.+)::.+$") or "")
+  local lines = {}
+  local ok, err = pcall(function()
+    local f = io.open(abs_file, "r")
+    if not f then return end
+    for l in f:lines() do table.insert(lines, l) end
+    f:close()
+  end)
+  if not ok or #lines == 0 then
+    lines = { "(preview unavailable)" }
+  end
+
+  local prev_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[prev_buf].buftype   = "nofile"
+  vim.bo[prev_buf].bufhidden = "wipe"
+  -- try to detect filetype for syntax highlighting
+  vim.bo[prev_buf].filetype = abs_file:match("%.(%w+)$") == "rs" and "rust" or ""
+  vim.api.nvim_buf_set_lines(prev_buf, 0, -1, false, lines)
+  vim.bo[prev_buf].modifiable = false
+
+  -- Swap buffer in the preview window
+  local old_buf = state.sl_prev_buf
+  vim.api.nvim_win_set_buf(state.sl_prev_win, prev_buf)
+  state.sl_prev_buf = prev_buf
+  if old_buf and vim.api.nvim_buf_is_valid(old_buf) then
+    vim.api.nvim_buf_delete(old_buf, { force = true })
+  end
+
+  -- Scroll to function start
+  local lnum = math.max(1, st.line_start or 1)
+  local max  = vim.api.nvim_buf_line_count(prev_buf)
+  vim.api.nvim_win_set_cursor(state.sl_prev_win, { math.min(lnum, max), 0 })
+  vim.api.nvim_win_call(state.sl_prev_win, function() vim.cmd("normal! zz") end)
+end
+
+local function sl_update_list()
+  if not state.sl_list_buf or not state.sl_stations then return end
+  local rows = {}
+  for i, st in ipairs(state.sl_stations) do
+    local prefix = (i == state.sl_idx) and " ▶ " or "   "
+    local loc = ":" .. (st.line_start or "?")
+    rows[i] = prefix .. pad_right(st.name, 22) .. loc
+  end
+  vim.bo[state.sl_list_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(state.sl_list_buf, 0, -1, false, rows)
+  vim.bo[state.sl_list_buf].modifiable = false
+
+  local ns = vim.api.nvim_create_namespace("metroscope_sl")
+  vim.api.nvim_buf_clear_namespace(state.sl_list_buf, ns, 0, -1)
+  vim.api.nvim_buf_add_highlight(state.sl_list_buf, ns, "MetroscopeFocusedName", state.sl_idx - 1, 0, -1)
+
+  if vim.api.nvim_win_is_valid(state.sl_list_win) then
+    vim.api.nvim_win_set_cursor(state.sl_list_win, { state.sl_idx, 0 })
+  end
+end
+
+local function zoom_to_stations(line)
+  -- line is a LineView from the map response
+  -- Build station list from the full file — re-fetch to get all stations
+  local url = config.server .. "/map?crate=" .. vim.uri_encode(state.crate_filter or "")
+  -- Get all stations for this line from state.data
+  local stations = {}
+  if state.data and state.data.lines then
+    for _, l in ipairs(state.data.lines) do
+      if l.id == line.id then
+        stations = l.stations
+        break
+      end
+    end
+  end
+  if #stations == 0 then return end
+
+  state.zoom       = "stations"
+  state.sl_stations = stations
+  state.sl_idx     = 1
+
+  -- Hide the map window (keep it alive for back navigation)
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_hide(state.win)
+  end
+
+  -- Layout: left list (~32 cols) | right preview (rest), both tall
+  local total_w = math.floor(vim.o.columns * 0.90)
+  local height  = math.floor(vim.o.lines   * 0.75)
+  local row     = math.floor((vim.o.lines - height) / 2)
+  local col     = math.floor((vim.o.columns - total_w) / 2)
+  local list_w  = 32
+  local prev_w  = total_w - list_w - 1  -- -1 for border gap
+
+  -- List window
+  local lb = vim.api.nvim_create_buf(false, true)
+  vim.bo[lb].buftype   = "nofile"
+  vim.bo[lb].bufhidden = "wipe"
+  vim.bo[lb].modifiable = false
+  local lw = vim.api.nvim_open_win(lb, true, {
+    relative  = "editor",
+    width     = list_w,
+    height    = height,
+    row       = row,
+    col       = col,
+    style     = "minimal",
+    border    = "rounded",
+    title     = "  " .. line.name .. "  ",
+    title_pos = "center",
+    footer    = "  j/k:move  <CR>:jump  b:back  q:close  ",
+    footer_pos = "center",
+    zindex    = 50,
+  })
+  vim.wo[lw].wrap       = false
+  vim.wo[lw].cursorline = false
+  vim.wo[lw].number     = false
+  vim.wo[lw].signcolumn = "no"
+
+  -- Preview window (no initial buf — sl_update_preview sets it)
+  local pb = vim.api.nvim_create_buf(false, true)
+  vim.bo[pb].buftype   = "nofile"
+  vim.bo[pb].bufhidden = "wipe"
+  local pw = vim.api.nvim_open_win(pb, false, {
+    relative  = "editor",
+    width     = prev_w,
+    height    = height,
+    row       = row,
+    col       = col + list_w + 1,
+    style     = "minimal",
+    border    = "rounded",
+    title     = "  preview  ",
+    title_pos = "center",
+    zindex    = 50,
+  })
+  vim.wo[pw].wrap       = false
+  vim.wo[pw].cursorline = true
+  vim.wo[pw].number     = true
+  vim.wo[pw].signcolumn = "no"
+
+  state.sl_list_buf = lb
+  state.sl_list_win = lw
+  state.sl_prev_buf = pb
+  state.sl_prev_win = pw
+
+  sl_update_list()
+  sl_update_preview()
+
+  -- Keymaps for the list window
+  local function map(key, fn)
+    vim.keymap.set("n", key, fn, { buffer = lb, nowait = true, silent = true })
+  end
+  map("j", function()
+    if state.sl_idx < #state.sl_stations then
+      state.sl_idx = state.sl_idx + 1
+      sl_update_list()
+      sl_update_preview()
+    end
+  end)
+  map("k", function()
+    if state.sl_idx > 1 then
+      state.sl_idx = state.sl_idx - 1
+      sl_update_list()
+      sl_update_preview()
+    end
+  end)
+  local function sl_jump()
+    local st = state.sl_stations[state.sl_idx]
+    if not st then return end
+    local file = st.id:match("^(.+)::.+$")
+    if not file then return end
+    local abs_file = (state.project_root or "") .. "/" .. file
+    close_station_list()
+    M.close()
+    local lnum = math.max(1, st.line_start or 1)
+    vim.cmd("edit " .. vim.fn.fnameescape(abs_file))
+    vim.schedule(function()
+      local max = vim.api.nvim_buf_line_count(0)
+      vim.api.nvim_win_set_cursor(0, { math.min(lnum, max), 0 })
+      vim.cmd("normal! zz")
+    end)
+  end
+  map("<CR>", sl_jump)
+  local function sl_back()
+    close_station_list()
+    state.zoom = "functions"
+    -- Restore the map window
+    if state.win and vim.api.nvim_win_is_valid(state.win) then
+      vim.api.nvim_set_current_win(state.win)
+    end
+  end
+  map("b",     sl_back)
+  map("q",     function() close_station_list(); M.close() end)
+  map("<Esc>", function() close_station_list(); M.close() end)
 end
 
 local function set_keymaps(buf)
@@ -835,19 +1118,19 @@ local function set_keymaps(buf)
   map("b", function()
     if state.zoom == "functions" then
       zoom_to_modules()
-    else
-      -- zoom back to functions for the currently focused module
-      local m = state.data and state.data.modules and state.data.modules[state.line_idx]
-      if m then zoom_to_functions(m.id)
-      else zoom_to_functions("") end
+    elseif state.zoom == "modules" then
+      -- already at top — no-op or stay
     end
   end)
   map("<CR>", function()
     if state.zoom == "modules" then
       local m = state.data and state.data.modules and state.data.modules[state.line_idx]
       if m then zoom_to_functions(m.id) end
-    else
-      jump_to_code()
+    elseif state.zoom == "functions" then
+      local line = state.data and state.data.lines and state.data.lines[state.line_idx]
+      if line and #line.stations > 0 then
+        zoom_to_stations(line)
+      end
     end
   end)
   map("q",     M.close)
@@ -859,11 +1142,17 @@ end
 function M.close()
   state.info_pinned = false
   close_info()
+  close_station_list()
+  if state.dim_win and vim.api.nvim_win_is_valid(state.dim_win) then
+    vim.api.nvim_win_close(state.dim_win, true)
+  end
+  state.dim_win = nil
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
   state.buf = nil
   state.win = nil
+  state.zoom = "functions"
 end
 
 function M.open()
@@ -882,6 +1171,7 @@ function M.open()
   state.crate_filter = nil
   state.line_idx     = 1
   state.station_idx  = 1
+  state.project_root = data.project_root or vim.fn.getcwd()
 
   if data.focused_station then
     for li, ld in ipairs(data.lines) do
@@ -895,6 +1185,7 @@ function M.open()
   end
 
   setup_highlights()
+  state.dim_win        = open_dim_win()
   state.buf, state.win = open_window()
   set_keymaps(state.buf)
   redraw()

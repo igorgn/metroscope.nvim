@@ -10,6 +10,7 @@ pub struct MapResponse {
     pub lines: Vec<LineView>,
     /// System-level summary shown in the status bar
     pub system_summary: String,
+    pub project_root: String,
 }
 
 #[derive(Serialize)]
@@ -89,6 +90,7 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>, crate_filter
         focused_station: focused.map(|s| s.id.clone()),
         lines,
         system_summary: index.system_summary.clone(),
+        project_root: index.project_root.clone(),
     }
 }
 
@@ -227,6 +229,7 @@ pub struct ModuleNode {
 pub struct ModuleMap {
     pub modules: Vec<ModuleNode>,
     pub system_summary: String,
+    pub project_root: String,
 }
 
 /// Extract crate id from a file path.
@@ -335,5 +338,6 @@ pub fn build_module_map(index: &Index) -> ModuleMap {
     ModuleMap {
         modules,
         system_summary: index.system_summary.clone(),
+        project_root: index.project_root.clone(),
     }
 }
