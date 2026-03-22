@@ -127,22 +127,22 @@ local function render_map(data)
       -- Three-row render: top, mid (with track), bottom
       -- track connector: "──" between boxes, aligned to middle row
 
-      local indent = string.rep(" ", LABEL_W)
-      local top_row  = label .. " "    -- label only on middle row; top/bot indent
-      local mid_row  = label .. " " .. dashes(2)
-      local bot_row  = label .. " "
+      -- top/bot rows: blank indent the same width as "label + ' ' + leading dashes"
+      -- mid row:      label + leading dashes connect into the box middle
+      local lead      = 2   -- leading dashes before first box
+      local indent    = string.rep(" ", LABEL_W + 1 + lead)
+      local top_row   = indent
+      local mid_row   = label .. " " .. dashes(lead)
+      local bot_row   = indent
 
-      -- First box: leading dashes already on mid_row
       for si, b in ipairs(boxes) do
-        top_row = top_row .. (si == 1 and string.rep(" ", 2) or string.rep(" ", PAD)) .. b[1]
+        top_row = top_row .. b[1]
         mid_row = mid_row .. b[2]
-        bot_row = bot_row .. (si == 1 and string.rep(" ", 2) or string.rep(" ", PAD)) .. b[3]
+        bot_row = bot_row .. b[3]
 
         if si < #boxes then
-          -- connector track on middle row, spaces on top/bot
-          local conn = dashes(PAD)
           top_row = top_row .. string.rep(" ", PAD)
-          mid_row = mid_row .. conn
+          mid_row = mid_row .. dashes(PAD)
           bot_row = bot_row .. string.rep(" ", PAD)
         end
       end
@@ -421,8 +421,8 @@ local function show_info()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].modifiable = false
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
+  vim.bo[buf].modifiable = false
 
   -- Position to the right of the map window, or below if no room
   local map_pos = vim.api.nvim_win_get_position(state.win)
