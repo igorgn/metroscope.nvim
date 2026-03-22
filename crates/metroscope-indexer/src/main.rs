@@ -33,9 +33,17 @@ enum Command {
         #[arg(long, env = "ANTHROPIC_API_KEY")]
         api_key: Option<String>,
         /// Path to the Serena repo for LSP-accurate call graph enrichment (optional).
-        /// Example: --serena-dir ~/tools/serena
         #[arg(long, env = "SERENA_DIR")]
         serena_dir: Option<PathBuf>,
+        /// Override the function summary prompt prefix.
+        #[arg(long)]
+        function_prompt: Option<String>,
+        /// Override the file/module summary prompt prefix.
+        #[arg(long)]
+        file_prompt: Option<String>,
+        /// Override the system summary prompt prefix.
+        #[arg(long)]
+        system_prompt: Option<String>,
     },
 }
 
@@ -43,7 +51,7 @@ enum Command {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Index { path, api_key, serena_dir } => {
+        Command::Index { path, api_key, serena_dir, function_prompt, file_prompt, system_prompt } => {
             let backend = match api_key {
                 Some(key) => LlmBackend::Api { key },
                 None => {
@@ -51,7 +59,12 @@ async fn main() -> Result<()> {
                     LlmBackend::Cli
                 }
             };
-            index_project(&path, &backend, serena_dir.as_deref()).await
+            let prompts = llm::PromptOverrides {
+                function_prompt,
+                file_prompt,
+                system_prompt,
+            };
+            index_project(&path, &backend, serena_dir.as_deref(), &prompts).await
         }
     }
 }
@@ -60,6 +73,7 @@ async fn index_project(
     project_root: &Path,
     backend: &LlmBackend,
     serena_dir: Option<&Path>,
+    prompts: &llm::PromptOverrides,
 ) -> Result<()> {
     let project_root = project_root
         .canonicalize()
@@ -103,7 +117,7 @@ async fn index_project(
 
     // Generate LLM summaries (batched)
     println!("Generating summaries with Claude...");
-    let summaries = llm::generate_summaries(&parsed_files, backend).await?;
+    let summaries = llm::generate_summaries(&parsed_files, backend, prompts).await?;
 
     // Build initial stations (outgoing calls from tree-sitter)
     let mut stations: HashMap<String, Station> = HashMap::new();

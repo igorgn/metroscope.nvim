@@ -19,6 +19,14 @@ pub enum LlmBackend {
     Cli,
 }
 
+/// Optional prompt overrides from the user (via CLI args / Lua config).
+/// Each field replaces the instruction prefix of the corresponding prompt.
+pub struct PromptOverrides {
+    pub function_prompt: Option<String>,
+    pub file_prompt: Option<String>,
+    pub system_prompt: Option<String>,
+}
+
 pub struct Summaries {
     pub function_summaries: HashMap<String, String>,
     pub file_summaries: HashMap<String, String>,
@@ -129,7 +137,7 @@ fn call_via_cli(prompt: &str) -> Result<String> {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend) -> Result<Summaries> {
+pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prompts: &PromptOverrides) -> Result<Summaries> {
     let mut function_summaries: HashMap<String, String> = HashMap::new();
     let mut file_summaries: HashMap<String, String> = HashMap::new();
 
@@ -145,7 +153,7 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend) -> R
 
     for (i, batch) in batches.iter().enumerate() {
         println!("  Batch {}/{}", i + 1, batches.len());
-        let prompt = build_function_batch_prompt(batch);
+        let prompt = build_function_batch_prompt(batch, prompts.function_prompt.as_deref());
         let response = call_claude(backend, &prompt).await?;
         parse_function_batch_response(&response, batch, &mut function_summaries);
     }
@@ -156,14 +164,14 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend) -> R
         if file.functions.is_empty() {
             continue;
         }
-        let prompt = build_file_prompt(file);
+        let prompt = build_file_prompt(file, prompts.file_prompt.as_deref());
         let summary = call_claude(backend, &prompt).await?;
         file_summaries.insert(file.file_id.clone(), summary.trim().to_string());
     }
 
     // --- System summary ---
     println!("  Generating system summary...");
-    let system_prompt = build_system_prompt(files, &file_summaries);
+    let system_prompt = build_system_prompt(files, &file_summaries, prompts.system_prompt.as_deref());
     let system_summary = call_claude(backend, &system_prompt).await?;
 
     Ok(Summaries {
@@ -175,14 +183,16 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend) -> R
 
 // ─── Prompt builders ──────────────────────────────────────────────────────────
 
-fn build_function_batch_prompt(functions: &[&crate::parser::ParsedFunction]) -> String {
-    let mut prompt = String::from(
+fn build_function_batch_prompt(functions: &[&crate::parser::ParsedFunction], override_prefix: Option<&str>) -> String {
+    let prefix = override_prefix.unwrap_or(
         "You are summarizing Rust functions for a code navigation tool. \
 For each function below, write a single sentence (≤15 words) describing what it does. \
-Be concrete and specific. Use present tense. Do not mention the language.\n\n\
-Respond with exactly one line per function in this format:\n\
-<id>|<summary>\n\n\
-Functions:\n",
+Be concrete and specific. Use present tense. Do not mention the language."
+    );
+    let mut prompt = format!(
+        "{}\n\nRespond with exactly one line per function in this format:\n\
+<id>|<summary>\n\nFunctions:\n",
+        prefix
     );
 
     for func in functions {
@@ -217,25 +227,31 @@ fn parse_function_batch_response(
     }
 }
 
-fn build_file_prompt(file: &ParsedFile) -> String {
-    let fn_names: Vec<_> = file.functions.iter().map(|f| f.name.as_str()).collect();
-    format!(
+fn build_file_prompt(file: &ParsedFile, override_prefix: Option<&str>) -> String {
+    let prefix = override_prefix.unwrap_or(
         "You are summarizing a Rust source file for a code navigation tool.\n\
 Write a single sentence (≤20 words) describing what this file/module does.\n\
-Be concrete. Use present tense.\n\n\
-File: {}\nFunctions: {}\n\nSource:\n```rust\n{}\n```",
+Be concrete. Use present tense."
+    );
+    let fn_names: Vec<_> = file.functions.iter().map(|f| f.name.as_str()).collect();
+    format!(
+        "{}\n\nFile: {}\nFunctions: {}\n\nSource:\n```rust\n{}\n```",
+        prefix,
         file.file_id,
         fn_names.join(", "),
         &file.source[..file.source.len().min(6000)]
     )
 }
 
-fn build_system_prompt(files: &[ParsedFile], file_summaries: &HashMap<String, String>) -> String {
+fn build_system_prompt(files: &[ParsedFile], file_summaries: &HashMap<String, String>, override_prefix: Option<&str>) -> String {
+    let prefix = override_prefix.unwrap_or(
+        "You are summarizing a Rust project for a code navigation tool.\n\
+Write a single sentence (≤25 words) describing the overall purpose of this project.\n\
+Be concrete. Use present tense."
+    );
     let mut lines = vec![
-        "You are summarizing a Rust project for a code navigation tool.".to_string(),
-        "Write a single sentence (≤25 words) describing the overall purpose of this project."
-            .to_string(),
-        "Be concrete. Use present tense.\n".to_string(),
+        prefix.to_string(),
+        String::new(),
         "Files and their summaries:".to_string(),
     ];
 

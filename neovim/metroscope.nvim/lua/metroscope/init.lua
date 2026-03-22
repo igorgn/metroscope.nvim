@@ -7,6 +7,12 @@ local config = {
   server          = "http://127.0.0.1:7777",
   serena_dir      = nil,   -- optional: path to serena repo for LSP-accurate call graph
   module_info     = "detailed",  -- "detailed" | "compact" — how much to show in module popup
+  -- LLM prompt overrides (passed to indexer at index time)
+  prompts = {
+    functions = nil,  -- replaces the function summary instruction
+    file      = nil,  -- replaces the file/module summary instruction
+    system    = nil,  -- replaces the system summary instruction
+  },
 }
 
 -- ─── HTTP ─────────────────────────────────────────────────────────────────────
@@ -31,6 +37,7 @@ local state = {
   crate_filter = nil,   -- when set, function view is scoped to this crate id
   line_idx     = 1,
   station_idx  = 1,
+  info_pinned  = false, -- when true, info popup stays open and updates on navigation
 }
 
 -- ─── Layout constants ─────────────────────────────────────────────────────────
@@ -261,11 +268,11 @@ end
 local ns = vim.api.nvim_create_namespace("metroscope")
 
 local function setup_highlights()
-  vim.api.nvim_set_hl(0, "MetroscopeFocusedBox",  { bold = true })
-  vim.api.nvim_set_hl(0, "MetroscopeArrow",       { bold = true })
-  vim.api.nvim_set_hl(0, "MetroscopeCrossLine",   { fg = "#FF6B6B", bold = true })
-  vim.api.nvim_set_hl(0, "MetroscopeTrack",       { fg = "#555555" })
-  vim.api.nvim_set_hl(0, "MetroscopeStatusKey",   { fg = "#888888" })
+  vim.api.nvim_set_hl(0, "MetroscopeFocusedName",  { bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeArrow",        { bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeCrossLine",    { fg = "#FF6B6B", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeTrack",        { fg = "#555555" })
+  vim.api.nvim_set_hl(0, "MetroscopeStatusKey",    { fg = "#888888" })
 end
 
 local function apply_highlights()
@@ -282,19 +289,15 @@ local function apply_highlights()
       vim.api.nvim_buf_add_highlight(state.buf, ns, hl_name, mid_row, 0, LABEL_W)
 
       if state.line_idx == mi then
-        local top_text = vim.api.nvim_buf_get_lines(state.buf, base, base + 1, false)[1] or ""
-        local open_b = top_text:find("╔", 1, true)
+        local mid_text = vim.api.nvim_buf_get_lines(state.buf, mid_row, mid_row + 1, false)[1] or ""
+        local open_b = mid_text:find("║", 1, true)
         if open_b then
-          local close_b = top_text:find("╗", open_b + #"╔", true)
+          local close_b = mid_text:find("║", open_b + #"║", true)
           if close_b then
-            local col_start = open_b - 1
-            local col_end   = close_b - 1 + #"╗"
-            for row_off = 0, 2 do
-              vim.api.nvim_buf_add_highlight(
-                state.buf, ns, "MetroscopeFocusedBox",
-                base + row_off, col_start, col_end
-              )
-            end
+            vim.api.nvim_buf_add_highlight(
+              state.buf, ns, "MetroscopeFocusedName",
+              mid_row, open_b - 1 + #"║", close_b - 1
+            )
           end
         end
       end
@@ -326,19 +329,19 @@ local function apply_highlights()
       local focused = (state.line_idx == li and state.station_idx == si)
 
       if focused then
-        local top_text = vim.api.nvim_buf_get_lines(state.buf, base, base + 1, false)[1] or ""
-        local open_b = top_text:find("╔", 1, true)
+        -- Only bold the station name on the middle row (between ║ ... ║)
+        local mid_text = vim.api.nvim_buf_get_lines(state.buf, base + 1, base + 2, false)[1] or ""
+        local open_b = mid_text:find("║", 1, true)
         if open_b then
-          local close_b = top_text:find("╗", open_b + #"╔", true)
+          local close_b = mid_text:find("║", open_b + #"║", true)
           if close_b then
-            local col_start = open_b - 1
-            local col_end   = close_b - 1 + #"╗"
-            for row_off = 0, 2 do
-              vim.api.nvim_buf_add_highlight(
-                state.buf, ns, "MetroscopeFocusedBox",
-                base + row_off, col_start, col_end
-              )
-            end
+            -- name sits between the two ║ characters
+            local name_start = open_b - 1 + #"║"
+            local name_end   = close_b - 1
+            vim.api.nvim_buf_add_highlight(
+              state.buf, ns, "MetroscopeFocusedName",
+              base + 1, name_start, name_end
+            )
           end
         end
       end
@@ -383,6 +386,11 @@ local function redraw()
   end
 
   apply_highlights()
+
+  -- If info is pinned, refresh it for the new position
+  if state.info_pinned then
+    vim.schedule(show_info)
+  end
 end
 
 -- ─── Navigation ───────────────────────────────────────────────────────────────
@@ -402,21 +410,10 @@ local function current_module()
 end
 
 local function move_right()
-  local line = state.data and state.data.lines[state.line_idx]
-  if not line then return end
-  if state.station_idx < #line.stations then
+  local line = state.data and state.data.lines and state.data.lines[state.line_idx]
+  if line and state.station_idx < #line.stations then
     state.station_idx = state.station_idx + 1
     redraw()
-  else
-    -- at right edge — re-fetch centered on current station to scroll right
-    local st = current_station()
-    if st and refetch_at(st) then
-      local new_line = state.data.lines[state.line_idx]
-      if new_line and state.station_idx < #new_line.stations then
-        state.station_idx = state.station_idx + 1
-      end
-      redraw()
-    end
   end
 end
 
@@ -424,40 +421,9 @@ local function move_left()
   if state.station_idx > 1 then
     state.station_idx = state.station_idx - 1
     redraw()
-  else
-    -- at left edge — re-fetch centered on current station to scroll left
-    local st = current_station()
-    if st and refetch_at(st) then
-      if state.station_idx > 1 then
-        state.station_idx = state.station_idx - 1
-      end
-      redraw()
-    end
   end
 end
 
--- Re-fetch map centered on the given station (file + line_start)
-local function refetch_at(st)
-  local file = st.id:match("^(.+)::.+$") or ""
-  local url = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. st.line_start
-  if state.crate_filter then
-    url = url .. "&crate=" .. vim.uri_encode(state.crate_filter)
-  end
-  local data = fetch(url)
-  if not data then return false end
-  state.data = data
-  -- find the new position of the focused station
-  for li, ld in ipairs(data.lines) do
-    for si, sv in ipairs(ld.stations) do
-      if sv.id == st.id then
-        state.line_idx    = li
-        state.station_idx = si
-        return true
-      end
-    end
-  end
-  return true
-end
 
 local function move_down()
   if not state.data then return end
@@ -688,15 +654,17 @@ local function open_info_popup(title, rows, W, jump_targets)
     end)
   end, opts)
 
-  -- Defer the autocmd so it doesn't fire on the current redraw
-  vim.schedule(function()
-    if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then return end
-    vim.api.nvim_create_autocmd("CursorMoved", {
-      buffer   = state.buf,
-      once     = true,
-      callback = close_info,
-    })
-  end)
+  -- Only auto-close on cursor move when not pinned
+  if not state.info_pinned then
+    vim.schedule(function()
+      if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then return end
+      vim.api.nvim_create_autocmd("CursorMoved", {
+        buffer   = state.buf,
+        once     = true,
+        callback = close_info,
+      })
+    end)
+  end
 end
 
 local function build_module_info_rows(m)
@@ -850,6 +818,15 @@ local function set_keymaps(buf)
   map("k",     move_up)
   map("i",     show_info)
   map("K",     show_info)
+  map("I", function()
+    state.info_pinned = not state.info_pinned
+    if state.info_pinned then
+      show_info()
+      vim.notify("Metroscope: info pinned — navigating updates info panel", vim.log.levels.INFO)
+    else
+      close_info()
+    end
+  end)
   map("<Tab>", function()
     if info_win and vim.api.nvim_win_is_valid(info_win) then
       vim.api.nvim_set_current_win(info_win)
@@ -880,6 +857,7 @@ end
 -- ─── Public API ───────────────────────────────────────────────────────────────
 
 function M.close()
+  state.info_pinned = false
   close_info()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
@@ -933,6 +911,10 @@ function M.index(project_root, api_key)
   if config.serena_dir then
     cmd = cmd .. " --serena-dir " .. vim.fn.shellescape(config.serena_dir)
   end
+  local p = config.prompts or {}
+  if p.functions then cmd = cmd .. " --function-prompt " .. vim.fn.shellescape(p.functions) end
+  if p.file      then cmd = cmd .. " --file-prompt "     .. vim.fn.shellescape(p.file)      end
+  if p.system    then cmd = cmd .. " --system-prompt "   .. vim.fn.shellescape(p.system)    end
   vim.cmd("botright 15split | terminal " .. cmd)
 end
 
@@ -941,6 +923,7 @@ function M.setup(opts)
   if opts.server      then config.server      = opts.server      end
   if opts.serena_dir  then config.serena_dir  = opts.serena_dir  end
   if opts.module_info then config.module_info = opts.module_info end
+  if opts.prompts     then config.prompts     = opts.prompts     end
   local leader = opts.leader or "<leader>m"
   vim.keymap.set("n", leader .. "s", M.open, { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "i", function()
