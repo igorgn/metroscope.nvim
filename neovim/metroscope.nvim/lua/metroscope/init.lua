@@ -261,8 +261,8 @@ end
 local ns = vim.api.nvim_create_namespace("metroscope")
 
 local function setup_highlights()
-  vim.api.nvim_set_hl(0, "MetroscopeFocusedBox",  { fg = "#FFD700", bold = true })
-  vim.api.nvim_set_hl(0, "MetroscopeArrow",       { fg = "#FFD700", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeFocusedBox",  { bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeArrow",       { bold = true })
   vim.api.nvim_set_hl(0, "MetroscopeCrossLine",   { fg = "#FF6B6B", bold = true })
   vim.api.nvim_set_hl(0, "MetroscopeTrack",       { fg = "#555555" })
   vim.api.nvim_set_hl(0, "MetroscopeStatusKey",   { fg = "#888888" })
@@ -461,60 +461,30 @@ end
 
 local function move_down()
   if not state.data then return end
-  -- Module view: simple bounded scroll (all modules always loaded)
-  if state.zoom == "modules" then
-    local n = #(state.data.modules or {})
-    if state.line_idx < n then
-      state.line_idx = state.line_idx + 1
-      redraw()
-    end
-    return
-  end
-  if state.line_idx < #state.data.lines then
+  local items = state.zoom == "modules" and state.data.modules or state.data.lines
+  if not items then return end
+  if state.line_idx < #items then
     state.line_idx = state.line_idx + 1
-    local line = state.data.lines[state.line_idx]
-    state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
-    redraw()
-  else
-    -- at bottom edge — re-fetch centered on current station to scroll window down
-    local st = current_station()
-    if st and refetch_at(st) then
-      if state.line_idx < #state.data.lines then
-        state.line_idx = state.line_idx + 1
-        local line = state.data.lines[state.line_idx]
-        state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
-      end
-      redraw()
+    if state.zoom ~= "modules" then
+      local line = items[state.line_idx]
+      state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
     end
+    redraw()
   end
 end
 
 local function move_up()
   if not state.data then return end
-  -- Module view: simple bounded scroll
-  if state.zoom == "modules" then
-    if state.line_idx > 1 then
-      state.line_idx = state.line_idx - 1
-      redraw()
-    end
-    return
-  end
   if state.line_idx > 1 then
     state.line_idx = state.line_idx - 1
-    local line = state.data.lines[state.line_idx]
-    state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
-    redraw()
-  else
-    -- at top edge — re-fetch centered on current station to scroll window up
-    local st = current_station()
-    if st and refetch_at(st) then
-      if state.line_idx > 1 then
-        state.line_idx = state.line_idx - 1
-        local line = state.data.lines[state.line_idx]
+    if state.zoom ~= "modules" then
+      local items = state.data.lines
+      if items then
+        local line = items[state.line_idx]
         state.station_idx = math.min(state.station_idx, math.max(1, #line.stations))
       end
-      redraw()
     end
+    redraw()
   end
 end
 

@@ -3,7 +3,6 @@ use metroscope_types::{ConnectionKind, Index, Line, Station};
 use serde::Serialize;
 
 const CONTEXT_RADIUS: usize = 3;
-const LINE_RADIUS: usize = 2;
 
 #[derive(Serialize)]
 pub struct MapResponse {
@@ -44,18 +43,7 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>, crate_filter
 
     let focused_line_id = focused.map(|s| s.line_id.as_str());
 
-    let focused_line_idx = focused_line_id
-        .and_then(|fid| all_lines.iter().position(|l| l.id == fid));
-
-    let line_range = if let Some(fi) = focused_line_idx {
-        let start = fi.saturating_sub(LINE_RADIUS);
-        let end = (fi + LINE_RADIUS + 1).min(all_lines.len());
-        start..end
-    } else {
-        0..all_lines.len()
-    };
-
-    let lines = all_lines[line_range]
+    let lines = all_lines
         .iter()
         .map(|line| {
             let is_focused_line = Some(line.id.as_str()) == focused_line_id;
