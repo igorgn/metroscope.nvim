@@ -4,8 +4,9 @@
 local M = {}
 
 local config = {
-  server     = "http://127.0.0.1:7777",
-  serena_dir = nil,   -- optional: path to serena repo for LSP-accurate call graph
+  server          = "http://127.0.0.1:7777",
+  serena_dir      = nil,   -- optional: path to serena repo for LSP-accurate call graph
+  module_info     = "detailed",  -- "detailed" | "compact" — how much to show in module popup
 }
 
 -- ─── HTTP ─────────────────────────────────────────────────────────────────────
@@ -23,12 +24,13 @@ end
 -- ─── State ────────────────────────────────────────────────────────────────────
 
 local state = {
-  buf         = nil,
-  win         = nil,
-  data        = nil,   -- MapResponse (function view) or ModuleMap (module view)
-  zoom        = "functions",  -- "functions" | "modules"
-  line_idx    = 1,
-  station_idx = 1,
+  buf          = nil,
+  win          = nil,
+  data         = nil,   -- MapResponse (function view) or ModuleMap (module view)
+  zoom         = "functions",  -- "functions" | "modules"
+  crate_filter = nil,   -- when set, function view is scoped to this crate id
+  line_idx     = 1,
+  station_idx  = 1,
 }
 
 -- ─── Layout constants ─────────────────────────────────────────────────────────
@@ -387,9 +389,16 @@ end
 
 local function current_station()
   if not state.data then return nil end
-  local line = state.data.lines[state.line_idx]
+  if state.zoom == "modules" then return nil end
+  local line = state.data.lines and state.data.lines[state.line_idx]
   if not line then return nil end
   return line.stations[state.station_idx]
+end
+
+local function current_module()
+  if not state.data then return nil end
+  if state.zoom ~= "modules" then return nil end
+  return state.data.modules and state.data.modules[state.line_idx]
 end
 
 local function move_right()
@@ -431,6 +440,9 @@ end
 local function refetch_at(st)
   local file = st.id:match("^(.+)::.+$") or ""
   local url = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. st.line_start
+  if state.crate_filter then
+    url = url .. "&crate=" .. vim.uri_encode(state.crate_filter)
+  end
   local data = fetch(url)
   if not data then return false end
   state.data = data
@@ -717,8 +729,55 @@ local function open_info_popup(title, rows, W, jump_targets)
   end)
 end
 
+local function build_module_info_rows(m)
+  local W = 56
+  local rows = {}
+  local jump_targets = {}
+  local function push(s, target)
+    table.insert(rows, s)
+    if target then jump_targets[#rows] = target end
+  end
+  local function rule() push(string.rep("─", W - 2)) end
+  local function blank() push("") end
+
+  push(" " .. m.name .. "  (" .. m.station_count .. " functions)")
+  rule()
+  blank()
+
+  local summary = (m.summary ~= "" and m.summary) or "(no summary)"
+  for _, wl in ipairs(word_wrap(summary, W - 4)) do push("  " .. wl) end
+  blank()
+
+  if config.module_info == "detailed" then
+    if #m.calls_into > 0 then
+      push("  → Calls into")
+      for _, cid in ipairs(m.calls_into) do
+        push("  ▸ " .. cid)
+      end
+      blank()
+    end
+    if #m.called_from > 0 then
+      push("  ← Called from")
+      for _, cid in ipairs(m.called_from) do
+        push("  ▸ " .. cid)
+      end
+      blank()
+    end
+  end
+
+  return rows, W, jump_targets
+end
+
 local function show_info()
   close_info()
+
+  -- Module view: show crate-level info
+  local m = current_module()
+  if m then
+    local rows, W, jt = build_module_info_rows(m)
+    open_info_popup(m.name, rows, W, jt)
+    return
+  end
 
   local st = current_station()
 
@@ -730,8 +789,8 @@ local function show_info()
     local rows, W, jt = build_info_rows(st.name, st.summary, file_id, detail, connections)
     open_info_popup(st.name, rows, W, jt)
   else
-    -- Component (line) info — cursor on a line with no stations in view, or on label row
-    local line = state.data and state.data.lines[state.line_idx]
+    -- Component (line/file) info
+    local line = state.data and state.data.lines and state.data.lines[state.line_idx]
     if not line then return end
     local connections = fetch(config.server .. "/connections?file=" .. vim.uri_encode(line.id))
     local rows, W, jt = build_info_rows(line.name, line.summary, line.id, nil, connections)
@@ -777,10 +836,11 @@ local function zoom_to_modules()
     vim.notify("Metroscope: could not fetch module map", vim.log.levels.ERROR)
     return
   end
-  state.zoom        = "modules"
-  state.data        = data
-  state.line_idx    = 1
-  state.station_idx = 1
+  state.zoom         = "modules"
+  state.data         = data
+  state.crate_filter = nil
+  state.line_idx     = 1
+  state.station_idx  = 1
   -- update footer hint
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_set_config(state.win, {
@@ -796,10 +856,11 @@ local function zoom_to_functions(crate_id)
   local url = config.server .. "/map?crate=" .. vim.uri_encode(crate_id)
   local data = fetch(url)
   if not data then return end
-  state.zoom        = "functions"
-  state.data        = data
-  state.line_idx    = 1
-  state.station_idx = 1
+  state.zoom         = "functions"
+  state.data         = data
+  state.crate_filter = crate_id
+  state.line_idx     = 1
+  state.station_idx  = 1
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_set_config(state.win, {
       footer     = "  i:info  <CR>:jump  h/l:move  j/k:line  b:modules  q:close  ",
@@ -868,9 +929,11 @@ function M.open()
     return
   end
 
-  state.data        = data
-  state.line_idx    = 1
-  state.station_idx = 1
+  state.data         = data
+  state.zoom         = "functions"
+  state.crate_filter = nil
+  state.line_idx     = 1
+  state.station_idx  = 1
 
   if data.focused_station then
     for li, ld in ipairs(data.lines) do
@@ -905,8 +968,9 @@ end
 
 function M.setup(opts)
   opts = opts or {}
-  if opts.server     then config.server     = opts.server     end
-  if opts.serena_dir then config.serena_dir = opts.serena_dir end
+  if opts.server      then config.server      = opts.server      end
+  if opts.serena_dir  then config.serena_dir  = opts.serena_dir  end
+  if opts.module_info then config.module_info = opts.module_info end
   local leader = opts.leader or "<leader>m"
   vim.keymap.set("n", leader .. "s", M.open, { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "i", function()
