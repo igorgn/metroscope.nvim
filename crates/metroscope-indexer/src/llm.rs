@@ -97,7 +97,8 @@ async fn call_via_api(api_key: &str, prompt: &str) -> Result<String> {
 /// Invoke `claude -p` with the prompt piped to stdin.
 fn call_via_cli(prompt: &str) -> Result<String> {
     let mut child = Command::new("claude")
-        .arg("-p")           // --print: non-interactive, print response to stdout
+        .arg("--no-session-persistence")
+        .arg("-p") // --print: non-interactive, print response to stdout
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -111,7 +112,9 @@ fn call_via_cli(prompt: &str) -> Result<String> {
         .write_all(prompt.as_bytes())
         .context("Failed to write prompt to claude stdin")?;
 
-    let output = child.wait_with_output().context("Failed to wait for claude CLI")?;
+    let output = child
+        .wait_with_output()
+        .context("Failed to wait for claude CLI")?;
 
     if !output.status.success() {
         anyhow::bail!(

@@ -33,8 +33,10 @@ local state = {
 
 local STATION     = "●"
 local STATION_YOU = "◉"
-local TRACK       = "──"
-local TRACK_START = "──"
+local DASH        = "─"
+local LABEL_W     = 14   -- fixed width for "[filename]" column
+local MIN_SLOT    = 4    -- minimum track segment width between stations
+local PAD         = 2    -- spaces between name and next station
 
 local function pad_right(s, n)
   local len = vim.fn.strdisplaywidth(s)
@@ -42,38 +44,58 @@ local function pad_right(s, n)
   return s .. string.rep(" ", n - len)
 end
 
+local function dashes(n)
+  return string.rep(DASH, math.max(0, n))
+end
+
 local function render_map(data)
   if not data or not data.lines then return {} end
 
   local lines_out = {}
-  local cursor_line = nil  -- line number in buffer for cursor
 
   for li, line in ipairs(data.lines) do
-    local label = pad_right("[" .. line.name .. "]", 12)
+    local label = pad_right("[" .. line.name .. "]", LABEL_W)
 
-    -- Track line
-    local track = label .. " " .. TRACK_START
-    local names = {}
+    if #line.stations == 0 then
+      -- File exists but has no functions — show a bare track
+      table.insert(lines_out, label .. " " .. dashes(6))
+      table.insert(lines_out, "")
+      table.insert(lines_out, "")
+    else
+      -- Compute per-station slot width = max(name display width + PAD, MIN_SLOT)
+      local slots = {}
+      for _, st in ipairs(line.stations) do
+        local nw = vim.fn.strdisplaywidth(st.name)
+        slots[#slots + 1] = math.max(nw + PAD, MIN_SLOT)
+      end
 
-    for si, st in ipairs(line.stations) do
-      local sym = (st.is_focused and state.line_idx == li and state.station_idx == si)
-          and STATION_YOU or STATION
-      track = track .. sym .. TRACK .. TRACK
-      table.insert(names, st.name)
+      -- Build track row: label + leading dashes + for each station: symbol + trailing dashes
+      -- The symbol sits at the start of its slot; trailing dashes fill (slot_w - 1) chars.
+      local track = label .. " " .. dashes(2)
+      for si, st in ipairs(line.stations) do
+        local focused = st.is_focused and state.line_idx == li and state.station_idx == si
+        local sym = focused and STATION_YOU or STATION
+        local trail = slots[si] - 1   -- dashes after the symbol to fill the slot
+        -- last station: no trailing dashes (avoids trailing garbage)
+        if si == #line.stations then trail = 0 end
+        track = track .. sym .. dashes(trail)
+      end
+
+      -- Build names row: same slot widths, names left-aligned within each slot
+      local indent = string.rep(" ", vim.fn.strdisplaywidth(label) + 3)  -- label + " " + 2 leading dashes
+      local name_line = indent
+      for si, st in ipairs(line.stations) do
+        if si == #line.stations then
+          name_line = name_line .. st.name
+        else
+          name_line = name_line .. pad_right(st.name, slots[si])
+        end
+      end
+
+      table.insert(lines_out, track)
+      table.insert(lines_out, name_line)
+      table.insert(lines_out, "")
     end
-
-    table.insert(lines_out, track)
-
-    -- Station names line (indented under the track)
-    local indent = string.rep(" ", vim.fn.strdisplaywidth(label) + 2 + #TRACK_START)
-    local name_line = indent
-    for _, nm in ipairs(names) do
-      name_line = name_line .. pad_right(nm, #STATION + #TRACK + #TRACK + 2)
-    end
-    table.insert(lines_out, name_line)
-
-    -- Blank separator between lines
-    table.insert(lines_out, "")
   end
 
   return lines_out
@@ -145,16 +167,17 @@ function M.apply_highlights()
     -- Color the bracket label
     local color_hl = "MetroscopeLine" .. li
     vim.api.nvim_set_hl(0, color_hl, { fg = line.color, bold = true })
-    vim.api.nvim_buf_add_highlight(state.buf, ns, color_hl, buf_line, 0, 12)
+    vim.api.nvim_buf_add_highlight(state.buf, ns, color_hl, buf_line, 0, LABEL_W)
 
-    -- Highlight focused station symbol
+    -- Highlight focused station: scan the rendered track line for ◉
     if state.line_idx == li then
-      for si, st in ipairs(line.stations) do
-        if st.is_focused then
-          -- approximate column: label(12) + space(1) + track_start(4) + per station offset
-          local col = 12 + 1 + #TRACK_START + (si - 1) * (#STATION + #TRACK + #TRACK)
-          vim.api.nvim_buf_add_highlight(state.buf, ns, "MetroscopeFocused", buf_line, col, col + #STATION_YOU)
-        end
+      local track_text = vim.api.nvim_buf_get_lines(state.buf, buf_line, buf_line + 1, false)[1] or ""
+      local byte_col = track_text:find(STATION_YOU, 1, true)
+      if byte_col then
+        vim.api.nvim_buf_add_highlight(
+          state.buf, ns, "MetroscopeFocused",
+          buf_line, byte_col - 1, byte_col - 1 + #STATION_YOU
+        )
       end
     end
   end
