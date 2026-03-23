@@ -176,37 +176,76 @@ end
 function M.open()
   local file = vim.fn.expand("%:.")
   local line = vim.fn.line(".")
-  local url  = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line
-  local data = fetch(url)
 
+  -- Determine if current buffer has a real file
+  local has_file = file ~= "" and vim.bo.buftype == ""
+
+  local url = has_file
+    and (config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line)
+    or  (config.server .. "/map")
+
+  local data = fetch(url)
   if not data then
     vim.notify("Metroscope: server not reachable at " .. config.server, vim.log.levels.ERROR)
     return
   end
 
-  state.data         = data
-  state.zoom         = "functions"
-  state.crate_filter = nil
-  state.line_idx     = 1
-  state.station_idx  = 1
   state.project_root = data.project_root or vim.fn.getcwd()
-
-  if data.focused_station then
-    for li, ld in ipairs(data.lines) do
-      for si, s in ipairs(ld.stations) do
-        if s.is_focused then
-          state.line_idx    = li
-          state.station_idx = si
-        end
-      end
-    end
-  end
 
   hl.setup()
   state.dim_win        = win_mod.open_dim_win()
   state.buf, state.win = win_mod.open_window()
   set_keymaps(state.buf)
-  redraw()
+
+  -- If we know which crate the current file belongs to, open that crate's
+  -- function view directly. Otherwise fall back to the module map.
+  if has_file and data.focused_crate and data.focused_crate ~= "root" then
+    -- Drill straight into the crate, then position cursor on the focused station
+    local crate_url  = config.server .. "/map?crate=" .. vim.uri_encode(data.focused_crate)
+    local crate_data = fetch(crate_url)
+    if crate_data then
+      state.data         = crate_data
+      state.zoom         = "functions"
+      state.crate_filter = data.focused_crate
+      state.line_idx     = 1
+      state.station_idx  = 1
+      if crate_data.project_root then state.project_root = crate_data.project_root end
+
+      -- Position cursor on focused station within the crate view
+      if data.focused_station then
+        for li, ld in ipairs(crate_data.lines or {}) do
+          for si, s in ipairs(ld.stations) do
+            if s.id == data.focused_station then
+              state.line_idx    = li
+              state.station_idx = si
+            end
+          end
+        end
+      end
+
+      vim.api.nvim_win_set_config(state.win, {
+        footer     = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
+        footer_pos = "center",
+      })
+      redraw()
+      return
+    end
+  end
+
+  -- Fallback: module map (no file, unknown crate, or crate fetch failed)
+  local mod_data = fetch(config.server .. "/module-map")
+  if mod_data then
+    state.data         = mod_data
+    state.zoom         = "modules"
+    state.crate_filter = nil
+    state.line_idx     = 1
+    state.station_idx  = 1
+    vim.api.nvim_win_set_config(state.win, {
+      footer     = "  i:info  <CR>:components  j/k:move  q:close  ",
+      footer_pos = "center",
+    })
+    redraw()
+  end
 end
 
 function M.index(project_root, api_key)

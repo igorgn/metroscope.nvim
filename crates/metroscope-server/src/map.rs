@@ -11,6 +11,8 @@ pub struct MapResponse {
     /// System-level summary shown in the status bar
     pub system_summary: String,
     pub project_root: String,
+    /// Crate id of the focused station's file, if any (e.g. "metroscope-indexer")
+    pub focused_crate: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -86,11 +88,14 @@ pub fn build_map_response(index: &Index, focused: Option<&Station>, crate_filter
         })
         .collect();
 
+    let focused_crate = focused.map(|s| crate_id_of(&s.line_id));
+
     MapResponse {
         focused_station: focused.map(|s| s.id.clone()),
         lines,
         system_summary: index.system_summary.clone(),
         project_root: index.project_root.clone(),
+        focused_crate,
     }
 }
 
