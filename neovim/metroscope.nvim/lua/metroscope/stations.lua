@@ -16,9 +16,10 @@ function M.close_station_list()
   if state.sl_list_win and vim.api.nvim_win_is_valid(state.sl_list_win) then
     vim.api.nvim_win_close(state.sl_list_win, true)
   end
-  state.sl_prev_win = nil; state.sl_prev_buf = nil
-  state.sl_list_win = nil; state.sl_list_buf = nil
-  state.sl_stations = nil
+  state.sl_prev_win     = nil; state.sl_prev_buf = nil
+  state.sl_list_win     = nil; state.sl_list_buf = nil
+  state.sl_stations     = nil
+  state.sl_prev_keymaps = nil
 end
 
 function M.sl_update_preview()
@@ -63,6 +64,13 @@ function M.sl_update_preview()
     vim.api.nvim_buf_delete(old_buf, { force = true })
   end
 
+  -- Re-apply preview keymaps on the new buffer (keymaps are lost when buffer is replaced)
+  if state.sl_prev_keymaps then
+    for key, fn in pairs(state.sl_prev_keymaps) do
+      vim.keymap.set("n", key, fn, { buffer = prev_buf, nowait = true, silent = true })
+    end
+  end
+
   -- Scroll so function start is at the top of the window
   local max = vim.api.nvim_buf_line_count(prev_buf)
   vim.api.nvim_win_set_cursor(state.sl_prev_win, { math.min(fn_start, max), 0 })
@@ -91,6 +99,8 @@ function M.sl_update_list()
 end
 
 function M.zoom_to_stations(line, close_all_fn)
+  info_mod.close_info()  -- dismiss any open info popup before entering station list
+
   local stations = {}
   if state.data and state.data.lines then
     for _, l in ipairs(state.data.lines) do
@@ -167,9 +177,14 @@ function M.zoom_to_stations(line, close_all_fn)
 
   M.sl_update_list()
   M.sl_update_preview()
+  -- sl_update_preview replaces+deletes pb, so state.sl_prev_buf is now a different buffer.
+  -- pmap must use state.sl_prev_buf, not the stale pb local.
 
   local function map(key, fn)
     vim.keymap.set("n", key, fn, { buffer = lb, nowait = true, silent = true })
+  end
+  local function pmap(key, fn)
+    vim.keymap.set("n", key, fn, { buffer = state.sl_prev_buf, nowait = true, silent = true })
   end
 
   map("j", function()
@@ -202,11 +217,14 @@ function M.zoom_to_stations(line, close_all_fn)
     M.close_station_list()
     state.zoom = "functions"
     if state.win and vim.api.nvim_win_is_valid(state.win) then
+      -- nvim_win_show restores a hidden window into the layout (Neovim 0.10+)
+      if vim.api.nvim_win_show then
+        vim.api.nvim_win_show(state.win)
+      end
       vim.api.nvim_set_current_win(state.win)
     end
   end
 
-  -- Scroll preview from the list window
   local function scroll_preview(dir)
     if not state.sl_prev_win or not vim.api.nvim_win_is_valid(state.sl_prev_win) then return end
     vim.api.nvim_win_call(state.sl_prev_win, function()
@@ -220,6 +238,10 @@ function M.zoom_to_stations(line, close_all_fn)
     info_mod.open_explain_float(s.id, s.name)
   end
 
+  local function focus_list()
+    if vim.api.nvim_win_is_valid(lw) then vim.api.nvim_set_current_win(lw) end
+  end
+
   map("<CR>",  sl_jump)
   map("e",     sl_explain)
   map("b",     sl_back)
@@ -228,19 +250,18 @@ function M.zoom_to_stations(line, close_all_fn)
   map("q",     function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
   map("<Esc>", function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
 
-  -- Mirror essential keymaps onto the preview buffer
-  local function pmap(key, fn)
-    vim.keymap.set("n", key, fn, { buffer = pb, nowait = true, silent = true })
+  -- Store keymaps so sl_update_preview re-applies them on every new buffer swap
+  state.sl_prev_keymaps = {
+    ["<Tab>"] = focus_list,
+    ["e"]     = sl_explain,
+    ["b"]     = sl_back,
+    ["<CR>"]  = sl_jump,
+    ["q"]     = function() M.close_station_list(); if close_all_fn then close_all_fn() end end,
+    ["<Esc>"] = function() M.close_station_list(); if close_all_fn then close_all_fn() end end,
+  }
+  for key, fn in pairs(state.sl_prev_keymaps) do
+    pmap(key, fn)
   end
-  local function focus_list()
-    if vim.api.nvim_win_is_valid(lw) then vim.api.nvim_set_current_win(lw) end
-  end
-  pmap("<Tab>", focus_list)
-  pmap("e",     sl_explain)
-  pmap("b",     sl_back)
-  pmap("<CR>",  sl_jump)
-  pmap("q",     function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
-  pmap("<Esc>", function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
 end
 
 return M

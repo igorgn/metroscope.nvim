@@ -34,22 +34,25 @@ pub struct SerenaIndex {
 pub async fn enrich(
     project_root: &Path,
     function_ids: &[String],   // "rel/path/to/file.rs::fn_name"
-    serena_dir: &Path,         // path to serena repo (for `python -m serena.cli`)
 ) -> Result<SerenaIndex> {
     let project_str = project_root.to_string_lossy();
 
-    // Spawn Serena MCP server over stdio
-    let mut cmd = Command::new("python");
-    cmd.arg("-m")
-        .arg("serena.cli")
+    // Spawn Serena MCP server over stdio via uvx (no local install needed)
+    let mut cmd = Command::new("uvx");
+    cmd.arg("--from")
+        .arg("git+https://github.com/oraios/serena")
+        .arg("serena")
         .arg("start-mcp-server")
         .arg("--project")
         .arg(project_str.as_ref())
         .arg("--transport")
         .arg("stdio")
         .arg("--context")
-        .arg("no-context")   // skip onboarding prompts
-        .current_dir(serena_dir)
+        .arg("no-context")
+        .arg("--enable-web-dashboard")
+        .arg("false")
+        .arg("--open-web-dashboard")
+        .arg("false")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit());

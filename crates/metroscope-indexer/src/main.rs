@@ -32,7 +32,8 @@ enum Command {
         /// Anthropic API key. If omitted, the `claude` CLI is used instead.
         #[arg(long, env = "ANTHROPIC_API_KEY")]
         api_key: Option<String>,
-        /// Path to the Serena repo for LSP-accurate call graph enrichment (optional).
+        /// Enable Serena LSP-accurate call graph enrichment (pass any value, e.g. --serena-dir=yes).
+        /// Serena is invoked via `uvx` — no local install needed.
         #[arg(long, env = "SERENA_DIR")]
         serena_dir: Option<PathBuf>,
         /// Override the function summary prompt prefix.
@@ -181,15 +182,11 @@ async fn index_project(
     }
 
     // Optionally enrich with Serena (CalledBy connections)
-    if let Some(serena_dir) = serena_dir {
-        let serena_dir = serena_dir
-            .canonicalize()
-            .context("Failed to canonicalize --serena-dir")?;
-
+    if serena_dir.is_some() {
         println!("Enriching with Serena (LSP call graph)...");
         let all_ids: Vec<String> = stations.keys().cloned().collect();
 
-        match serena::enrich(&project_root, &all_ids, &serena_dir).await {
+        match serena::enrich(&project_root, &all_ids).await {
             Ok(serena_index) => {
                 let mut added = 0usize;
                 for (station_id, callers) in serena_index.callers {
