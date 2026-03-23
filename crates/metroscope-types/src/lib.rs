@@ -44,8 +44,10 @@ pub struct Station {
     pub name: String,
     pub kind: StationKind,
     pub location: Location,
-    /// LLM-generated plain-English summary
+    /// LLM-generated plain-English summary (one sentence)
     pub summary: String,
+    /// LLM-generated detailed explanation (multi-sentence)
+    pub explanation: String,
     pub connections: Vec<Connection>,
     /// Which Line (file) this station belongs to
     pub line_id: String,

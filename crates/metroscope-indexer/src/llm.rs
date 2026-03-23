@@ -29,6 +29,7 @@ pub struct PromptOverrides {
 
 pub struct Summaries {
     pub function_summaries: HashMap<String, String>,
+    pub function_explanations: HashMap<String, String>,
     pub file_summaries: HashMap<String, String>,
     pub system_summary: String,
 }
@@ -158,6 +159,21 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prom
         parse_function_batch_response(&response, batch, &mut function_summaries);
     }
 
+    // --- Function explanations (batched, longer form) ---
+    let mut function_explanations: HashMap<String, String> = HashMap::new();
+    let expl_batches: Vec<_> = all_functions.chunks(BATCH_SIZE).collect();
+    println!(
+        "  Generating explanations for {} functions in {} batches...",
+        all_functions.len(),
+        expl_batches.len()
+    );
+    for (i, batch) in expl_batches.iter().enumerate() {
+        println!("  Explanation batch {}/{}", i + 1, expl_batches.len());
+        let prompt = build_explanation_batch_prompt(batch);
+        let response = call_claude(backend, &prompt).await?;
+        parse_function_batch_response(&response, batch, &mut function_explanations);
+    }
+
     // --- File summaries ---
     println!("  Summarizing {} files...", files.len());
     for file in files {
@@ -176,6 +192,7 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prom
 
     Ok(Summaries {
         function_summaries,
+        function_explanations,
         file_summaries,
         system_summary: system_summary.trim().to_string(),
     })
@@ -225,6 +242,28 @@ fn parse_function_batch_response(
         out.entry(func.id.clone())
             .or_insert_with(|| "No summary available.".to_string());
     }
+}
+
+fn build_explanation_batch_prompt(functions: &[&crate::parser::ParsedFunction]) -> String {
+    let mut prompt = "You are explaining Rust functions for a developer reading a code navigation tool.\n\
+For each function below, write 2-4 sentences explaining:\n\
+1. What the function does and why it exists\n\
+2. Any notable implementation details or gotchas\n\
+Use plain English. Present tense. No code snippets in the response.\n\
+\n\
+Respond with exactly one entry per function in this format:\n\
+<id>|<explanation>\n\
+\n\
+Functions:\n".to_string();
+
+    for func in functions {
+        prompt.push_str(&format!(
+            "---\nID: {}\n```rust\n{}\n```\n",
+            func.id, func.body
+        ));
+    }
+
+    prompt
 }
 
 fn build_file_prompt(file: &ParsedFile, override_prefix: Option<&str>) -> String {

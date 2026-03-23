@@ -166,7 +166,7 @@ function M.build_module_info_rows(m)
   return rows, W, jump_targets
 end
 
-function M.open_info_popup(title, rows, W, jump_targets, on_close_cb)
+function M.open_info_popup(title, rows, W, jump_targets, on_close_cb, station_id)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
@@ -266,6 +266,13 @@ function M.open_info_popup(title, rows, W, jump_targets, on_close_cb)
     util.jump_to_file(target.file, target.line)
   end, opts)
 
+  -- e: open explanation float (only when viewing a station, not a module)
+  if station_id then
+    vim.keymap.set("n", "e", function()
+      M.open_explain_float(station_id, title)
+    end, opts)
+  end
+
   if not state.info_pinned then
     vim.schedule(function()
       if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then return end
@@ -294,7 +301,7 @@ function M.show_info(current_station_fn, current_module_fn, close_all_fn)
     local file_id     = s.id:match("^(.+)::.+$") or ""
     local connections = fetch(config.server .. "/connections?file=" .. vim.uri_encode(file_id))
     local rows, W, jt = M.build_info_rows(s.name, s.summary, file_id, detail, connections)
-    M.open_info_popup(s.name, rows, W, jt, close_all_fn)
+    M.open_info_popup(s.name, rows, W, jt, close_all_fn, s.id)
   else
     local line = state.data and state.data.lines and state.data.lines[state.line_idx]
     if not line then return end
@@ -302,6 +309,66 @@ function M.show_info(current_station_fn, current_module_fn, close_all_fn)
     local rows, W, jt = M.build_info_rows(line.name, line.summary, line.id, nil, connections)
     M.open_info_popup(line.name, rows, W, jt, close_all_fn)
   end
+end
+
+-- Open a floating window showing the detailed explanation for a station.
+-- `station_id` is the full id string; explanation is fetched from the server.
+function M.open_explain_float(station_id, station_name)
+  local detail = fetch(config.server .. "/station/" .. station_id)
+  local explanation = detail and detail.explanation
+  if not explanation or explanation == "" then
+    explanation = "(no explanation available — re-index to generate)"
+  end
+
+  local W = 64
+  local wrapped = {}
+  -- word-wrap the explanation into W-4 wide lines
+  local remaining = explanation
+  while vim.fn.strdisplaywidth(remaining) > W - 4 do
+    local cut = remaining:sub(1, W - 4):match("^(.+)%s") or remaining:sub(1, W - 4)
+    table.insert(wrapped, "  " .. cut)
+    remaining = vim.trim(remaining:sub(#cut + 1))
+  end
+  if remaining ~= "" then table.insert(wrapped, "  " .. remaining) end
+
+  local rows = { "" }
+  for _, l in ipairs(wrapped) do table.insert(rows, l) end
+  table.insert(rows, "")
+
+  local H = math.min(#rows + 2, vim.o.lines - 4)
+  local erow = math.floor((vim.o.lines - H) / 2)
+  local ecol = math.floor((vim.o.columns - W) / 2)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].buftype   = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
+  vim.bo[buf].modifiable = false
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative  = "editor",
+    width     = W,
+    height    = H,
+    row       = erow,
+    col       = ecol,
+    style     = "minimal",
+    border    = "rounded",
+    title     = "  explain: " .. (station_name or station_id) .. "  ",
+    title_pos = "center",
+    footer    = "  y:yank  q/<Esc>:close  ",
+    footer_pos = "center",
+    zindex    = 150,
+  })
+
+  local opts = { buffer = buf, nowait = true, silent = true }
+  local function close() vim.api.nvim_win_close(win, true) end
+  vim.keymap.set("n", "q",     close, opts)
+  vim.keymap.set("n", "<Esc>", close, opts)
+  -- y: yank explanation to system clipboard
+  vim.keymap.set("n", "y", function()
+    vim.fn.setreg("+", explanation)
+    vim.notify("Explanation copied to clipboard", vim.log.levels.INFO)
+  end, opts)
 end
 
 return M

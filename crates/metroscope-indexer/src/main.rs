@@ -148,6 +148,11 @@ async fn index_project(
                 .get(&func.id)
                 .cloned()
                 .unwrap_or_default();
+            let explanation = summaries
+                .function_explanations
+                .get(&func.id)
+                .cloned()
+                .unwrap_or_default();
 
             let connections: Vec<Connection> = func
                 .calls
@@ -168,6 +173,7 @@ async fn index_project(
                 kind: func.kind.clone(),
                 location: func.location.clone(),
                 summary,
+                explanation,
                 connections,
                 line_id: pf.file_id.clone(),
             });

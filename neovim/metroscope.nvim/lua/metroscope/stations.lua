@@ -1,7 +1,8 @@
 -- Station list zoom level (telescope-style list + preview)
 
-local st   = require("metroscope.state")
-local util = require("metroscope.util")
+local st      = require("metroscope.state")
+local util    = require("metroscope.util")
+local info_mod = require("metroscope.info")
 
 local state  = st.state
 local LABEL_W = st.LABEL_W
@@ -44,6 +45,17 @@ function M.sl_update_preview()
   vim.api.nvim_buf_set_lines(prev_buf, 0, -1, false, lines)
   vim.bo[prev_buf].modifiable = false
 
+  -- Dim lines outside the function body
+  local fn_start = math.max(1, s.line_start or 1)
+  local fn_end   = math.max(fn_start, s.line_end or fn_start)
+  local dim_ns   = vim.api.nvim_create_namespace("metroscope_prev_dim")
+  vim.api.nvim_set_hl(0, "MetroscopePreviewDim", { fg = "#555555", bg = "NONE" })
+  for i = 1, #lines do
+    if i < fn_start or i > fn_end then
+      vim.api.nvim_buf_add_highlight(prev_buf, dim_ns, "MetroscopePreviewDim", i - 1, 0, -1)
+    end
+  end
+
   local old_buf = state.sl_prev_buf
   vim.api.nvim_win_set_buf(state.sl_prev_win, prev_buf)
   state.sl_prev_buf = prev_buf
@@ -51,10 +63,10 @@ function M.sl_update_preview()
     vim.api.nvim_buf_delete(old_buf, { force = true })
   end
 
-  local lnum = math.max(1, s.line_start or 1)
-  local max  = vim.api.nvim_buf_line_count(prev_buf)
-  vim.api.nvim_win_set_cursor(state.sl_prev_win, { math.min(lnum, max), 0 })
-  vim.api.nvim_win_call(state.sl_prev_win, function() vim.cmd("normal! zz") end)
+  -- Scroll so function start is at the top of the window
+  local max = vim.api.nvim_buf_line_count(prev_buf)
+  vim.api.nvim_win_set_cursor(state.sl_prev_win, { math.min(fn_start, max), 0 })
+  vim.api.nvim_win_call(state.sl_prev_win, function() vim.cmd("normal! zt") end)
 end
 
 function M.sl_update_list()
@@ -119,7 +131,7 @@ function M.zoom_to_stations(line, close_all_fn)
     border     = "rounded",
     title      = "  " .. line.name .. "  ",
     title_pos  = "center",
-    footer     = "  j/k:move  <CR>:jump  b:back  q:close  ",
+    footer     = "  j/k:move  e:explain  <Tab>:preview  C-f/b:scroll  <CR>:jump  b:back  q:close  ",
     footer_pos = "center",
     zindex     = 50,
   })
@@ -194,10 +206,41 @@ function M.zoom_to_stations(line, close_all_fn)
     end
   end
 
+  -- Scroll preview from the list window
+  local function scroll_preview(dir)
+    if not state.sl_prev_win or not vim.api.nvim_win_is_valid(state.sl_prev_win) then return end
+    vim.api.nvim_win_call(state.sl_prev_win, function()
+      vim.cmd("normal! " .. dir)
+    end)
+  end
+
+  local function sl_explain()
+    local s = state.sl_stations and state.sl_stations[state.sl_idx]
+    if not s then return end
+    info_mod.open_explain_float(s.id, s.name)
+  end
+
   map("<CR>",  sl_jump)
+  map("e",     sl_explain)
   map("b",     sl_back)
+  map("<C-f>", function() scroll_preview("\6") end)
+  map("<C-b>", function() scroll_preview("\2") end)
   map("q",     function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
   map("<Esc>", function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
+
+  -- Mirror essential keymaps onto the preview buffer
+  local function pmap(key, fn)
+    vim.keymap.set("n", key, fn, { buffer = pb, nowait = true, silent = true })
+  end
+  local function focus_list()
+    if vim.api.nvim_win_is_valid(lw) then vim.api.nvim_set_current_win(lw) end
+  end
+  pmap("<Tab>", focus_list)
+  pmap("e",     sl_explain)
+  pmap("b",     sl_back)
+  pmap("<CR>",  sl_jump)
+  pmap("q",     function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
+  pmap("<Esc>", function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
 end
 
 return M
