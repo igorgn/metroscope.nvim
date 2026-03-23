@@ -1,0 +1,203 @@
+-- Station list zoom level (telescope-style list + preview)
+
+local st   = require("metroscope.state")
+local util = require("metroscope.util")
+
+local state  = st.state
+local LABEL_W = st.LABEL_W
+
+local M = {}
+
+function M.close_station_list()
+  if state.sl_prev_win and vim.api.nvim_win_is_valid(state.sl_prev_win) then
+    vim.api.nvim_win_close(state.sl_prev_win, true)
+  end
+  if state.sl_list_win and vim.api.nvim_win_is_valid(state.sl_list_win) then
+    vim.api.nvim_win_close(state.sl_list_win, true)
+  end
+  state.sl_prev_win = nil; state.sl_prev_buf = nil
+  state.sl_list_win = nil; state.sl_list_buf = nil
+  state.sl_stations = nil
+end
+
+function M.sl_update_preview()
+  local s = state.sl_stations and state.sl_stations[state.sl_idx]
+  if not s or not state.sl_prev_win then return end
+  if not vim.api.nvim_win_is_valid(state.sl_prev_win) then return end
+
+  local abs_file = (state.project_root or "") .. "/" .. (s.id:match("^(.+)::.+$") or "")
+  local lines = {}
+  local ok = pcall(function()
+    local f = io.open(abs_file, "r")
+    if not f then return end
+    for l in f:lines() do table.insert(lines, l) end
+    f:close()
+  end)
+  if not ok or #lines == 0 then
+    lines = { "(preview unavailable)" }
+  end
+
+  local prev_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[prev_buf].buftype   = "nofile"
+  vim.bo[prev_buf].bufhidden = "wipe"
+  vim.bo[prev_buf].filetype  = abs_file:match("%.(%w+)$") == "rs" and "rust" or ""
+  vim.api.nvim_buf_set_lines(prev_buf, 0, -1, false, lines)
+  vim.bo[prev_buf].modifiable = false
+
+  local old_buf = state.sl_prev_buf
+  vim.api.nvim_win_set_buf(state.sl_prev_win, prev_buf)
+  state.sl_prev_buf = prev_buf
+  if old_buf and vim.api.nvim_buf_is_valid(old_buf) then
+    vim.api.nvim_buf_delete(old_buf, { force = true })
+  end
+
+  local lnum = math.max(1, s.line_start or 1)
+  local max  = vim.api.nvim_buf_line_count(prev_buf)
+  vim.api.nvim_win_set_cursor(state.sl_prev_win, { math.min(lnum, max), 0 })
+  vim.api.nvim_win_call(state.sl_prev_win, function() vim.cmd("normal! zz") end)
+end
+
+function M.sl_update_list()
+  if not state.sl_list_buf or not state.sl_stations then return end
+  local rows = {}
+  for i, s in ipairs(state.sl_stations) do
+    local prefix = (i == state.sl_idx) and " ▶ " or "   "
+    local loc = ":" .. (s.line_start or "?")
+    rows[i] = prefix .. util.pad_right(s.name, 22) .. loc
+  end
+  vim.bo[state.sl_list_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(state.sl_list_buf, 0, -1, false, rows)
+  vim.bo[state.sl_list_buf].modifiable = false
+
+  local ns = vim.api.nvim_create_namespace("metroscope_sl")
+  vim.api.nvim_buf_clear_namespace(state.sl_list_buf, ns, 0, -1)
+  vim.api.nvim_buf_add_highlight(state.sl_list_buf, ns, "MetroscopeFocusedName", state.sl_idx - 1, 0, -1)
+
+  if vim.api.nvim_win_is_valid(state.sl_list_win) then
+    vim.api.nvim_win_set_cursor(state.sl_list_win, { state.sl_idx, 0 })
+  end
+end
+
+function M.zoom_to_stations(line, close_all_fn)
+  local stations = {}
+  if state.data and state.data.lines then
+    for _, l in ipairs(state.data.lines) do
+      if l.id == line.id then
+        stations = l.stations
+        break
+      end
+    end
+  end
+  if #stations == 0 then return end
+
+  state.zoom        = "stations"
+  state.sl_stations = stations
+  state.sl_idx      = 1
+
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_hide(state.win)
+  end
+
+  local total_w = math.floor(vim.o.columns * 0.90)
+  local height  = math.floor(vim.o.lines   * 0.75)
+  local row     = math.floor((vim.o.lines - height) / 2)
+  local col     = math.floor((vim.o.columns - total_w) / 2)
+  local list_w  = 32
+  local prev_w  = total_w - list_w - 1
+
+  local lb = vim.api.nvim_create_buf(false, true)
+  vim.bo[lb].buftype    = "nofile"
+  vim.bo[lb].bufhidden  = "wipe"
+  vim.bo[lb].modifiable = false
+  local lw = vim.api.nvim_open_win(lb, true, {
+    relative   = "editor",
+    width      = list_w,
+    height     = height,
+    row        = row,
+    col        = col,
+    style      = "minimal",
+    border     = "rounded",
+    title      = "  " .. line.name .. "  ",
+    title_pos  = "center",
+    footer     = "  j/k:move  <CR>:jump  b:back  q:close  ",
+    footer_pos = "center",
+    zindex     = 50,
+  })
+  vim.wo[lw].wrap       = false
+  vim.wo[lw].cursorline = false
+  vim.wo[lw].number     = false
+  vim.wo[lw].signcolumn = "no"
+
+  local pb = vim.api.nvim_create_buf(false, true)
+  vim.bo[pb].buftype   = "nofile"
+  vim.bo[pb].bufhidden = "wipe"
+  local pw = vim.api.nvim_open_win(pb, false, {
+    relative  = "editor",
+    width     = prev_w,
+    height    = height,
+    row       = row,
+    col       = col + list_w + 1,
+    style     = "minimal",
+    border    = "rounded",
+    title     = "  preview  ",
+    title_pos = "center",
+    zindex    = 50,
+  })
+  vim.wo[pw].wrap       = false
+  vim.wo[pw].cursorline = true
+  vim.wo[pw].number     = true
+  vim.wo[pw].signcolumn = "no"
+
+  state.sl_list_buf = lb
+  state.sl_list_win = lw
+  state.sl_prev_buf = pb
+  state.sl_prev_win = pw
+
+  M.sl_update_list()
+  M.sl_update_preview()
+
+  local function map(key, fn)
+    vim.keymap.set("n", key, fn, { buffer = lb, nowait = true, silent = true })
+  end
+
+  map("j", function()
+    if state.sl_idx < #state.sl_stations then
+      state.sl_idx = state.sl_idx + 1
+      M.sl_update_list()
+      M.sl_update_preview()
+    end
+  end)
+  map("k", function()
+    if state.sl_idx > 1 then
+      state.sl_idx = state.sl_idx - 1
+      M.sl_update_list()
+      M.sl_update_preview()
+    end
+  end)
+
+  local function sl_jump()
+    local s = state.sl_stations[state.sl_idx]
+    if not s then return end
+    local file = s.id:match("^(.+)::.+$")
+    if not file then return end
+    local abs_file = (state.project_root or "") .. "/" .. file
+    M.close_station_list()
+    if close_all_fn then close_all_fn() end
+    util.jump_to_file(abs_file, s.line_start)
+  end
+
+  local function sl_back()
+    M.close_station_list()
+    state.zoom = "functions"
+    if state.win and vim.api.nvim_win_is_valid(state.win) then
+      vim.api.nvim_set_current_win(state.win)
+    end
+  end
+
+  map("<CR>",  sl_jump)
+  map("b",     sl_back)
+  map("q",     function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
+  map("<Esc>", function() M.close_station_list(); if close_all_fn then close_all_fn() end end)
+end
+
+return M
