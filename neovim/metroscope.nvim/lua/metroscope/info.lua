@@ -12,13 +12,18 @@ local CROSS_SYM = st.CROSS_SYM
 
 local M = {}
 
-M.info_win = nil
+M.info_win    = nil
+M.explain_win = nil
 
 function M.close_info()
   if M.info_win and vim.api.nvim_win_is_valid(M.info_win) then
     vim.api.nvim_win_close(M.info_win, true)
   end
   M.info_win = nil
+  if M.explain_win and vim.api.nvim_win_is_valid(M.explain_win) then
+    vim.api.nvim_win_close(M.explain_win, true)
+  end
+  M.explain_win = nil
 end
 
 -- Compute the buffer column just past the right edge of the focused station box.
@@ -378,16 +383,29 @@ function M.open_explain_float(station_id, station_name, anchor_win)
     }
   end
 
+  -- Toggle: close if already open
+  if M.explain_win and vim.api.nvim_win_is_valid(M.explain_win) then
+    vim.api.nvim_win_close(M.explain_win, true)
+    M.explain_win = nil
+    return
+  end
+
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
   vim.bo[buf].modifiable = false
 
-  local win = vim.api.nvim_open_win(buf, true, win_config)
+  -- enter=false: cursor stays in the calling window
+  M.explain_win = vim.api.nvim_open_win(buf, false, win_config)
 
   local opts = { buffer = buf, nowait = true, silent = true }
-  local function close() vim.api.nvim_win_close(win, true) end
+  local function close()
+    if M.explain_win and vim.api.nvim_win_is_valid(M.explain_win) then
+      vim.api.nvim_win_close(M.explain_win, true)
+    end
+    M.explain_win = nil
+  end
   vim.keymap.set("n", "q",     close, opts)
   vim.keymap.set("n", "<Esc>", close, opts)
   -- y: yank explanation to system clipboard

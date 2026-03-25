@@ -248,6 +248,79 @@ function M.open()
   end
 end
 
+-- Open directly into the station list for the current file's line,
+-- skipping the function map view entirely.
+function M.open_stations()
+  local file = vim.fn.expand("%:.")
+  local line = vim.fn.line(".")
+  local has_file = file ~= "" and vim.bo.buftype == ""
+  if not has_file then
+    vim.notify("Metroscope: no file in current buffer", vim.log.levels.WARN)
+    return
+  end
+
+  local url  = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line
+  local data = fetch(url)
+  if not data then
+    vim.notify("Metroscope: server not reachable at " .. config.server, vim.log.levels.ERROR)
+    return
+  end
+
+  state.project_root = data.project_root or vim.fn.getcwd()
+
+  -- Need crate data to find the focused line
+  if not (type(data.focused_crate) == "string" and data.focused_crate ~= "root") then
+    vim.notify("Metroscope: current file has no known crate — use <leader>ms instead", vim.log.levels.WARN)
+    return
+  end
+
+  local crate_url  = config.server .. "/map?crate=" .. vim.uri_encode(data.focused_crate)
+  local crate_data = fetch(crate_url)
+  if not crate_data then
+    vim.notify("Metroscope: could not fetch crate map", vim.log.levels.ERROR)
+    return
+  end
+
+  state.data         = crate_data
+  state.zoom         = "functions"
+  state.crate_filter = data.focused_crate
+  if crate_data.project_root then state.project_root = crate_data.project_root end
+
+  -- Find the line that contains the focused station
+  local target_line_idx = 1
+  if data.focused_station then
+    for li, ld in ipairs(crate_data.lines or {}) do
+      for _, s in ipairs(ld.stations) do
+        if s.id == data.focused_station then
+          target_line_idx = li
+          break
+        end
+      end
+    end
+  end
+  state.line_idx    = target_line_idx
+  state.station_idx = 1
+
+  -- Open map window (hidden immediately — stations view takes over)
+  hl.setup()
+  state.dim_win        = win_mod.open_dim_win()
+  state.buf, state.win = win_mod.open_window()
+  set_keymaps(state.buf)
+
+  local target_line = crate_data.lines and crate_data.lines[target_line_idx]
+  if not target_line or #target_line.stations == 0 then
+    -- Fallback: show the map normally
+    vim.api.nvim_win_set_config(state.win, {
+      footer     = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
+      footer_pos = "center",
+    })
+    redraw()
+    return
+  end
+
+  sl_mod.zoom_to_stations(target_line, M.close)
+end
+
 function M.index(project_root, api_key)
   project_root = project_root or vim.fn.getcwd()
   api_key      = api_key or vim.env.ANTHROPIC_API_KEY or ""
@@ -273,7 +346,8 @@ function M.setup(opts)
   if opts.module_info then config.module_info = opts.module_info end
   if opts.prompts     then config.prompts     = opts.prompts     end
   local leader = opts.leader or "<leader>m"
-  vim.keymap.set("n", leader .. "s", M.open, { desc = "Metroscope: open map" })
+  vim.keymap.set("n", leader .. "s", M.open,          { desc = "Metroscope: open map" })
+  vim.keymap.set("n", leader .. "l", M.open_stations, { desc = "Metroscope: open station list for current file" })
   vim.keymap.set("n", leader .. "i", function()
     M.index(vim.fn.getcwd(), vim.env.ANTHROPIC_API_KEY)
   end, { desc = "Metroscope: re-index" })

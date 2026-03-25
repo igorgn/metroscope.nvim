@@ -10,6 +10,7 @@ local LABEL_W = st.LABEL_W
 local M = {}
 
 function M.close_station_list()
+  pcall(vim.api.nvim_del_augroup_by_name, "MetroscopeSLGuard")
   if state.sl_prev_win and vim.api.nvim_win_is_valid(state.sl_prev_win) then
     vim.api.nvim_win_close(state.sl_prev_win, true)
   end
@@ -187,11 +188,23 @@ function M.zoom_to_stations(line, close_all_fn)
     vim.keymap.set("n", key, fn, { buffer = state.sl_prev_buf, nowait = true, silent = true })
   end
 
+  -- Refresh explain float for the current station if it's already open
+  local function refresh_explain()
+    if not (info_mod.explain_win and vim.api.nvim_win_is_valid(info_mod.explain_win)) then return end
+    local s = state.sl_stations and state.sl_stations[state.sl_idx]
+    if not s then return end
+    -- Close and reopen without toggling (force reopen by clearing the win first)
+    vim.api.nvim_win_close(info_mod.explain_win, true)
+    info_mod.explain_win = nil
+    info_mod.open_explain_float(s.id, s.name, state.sl_prev_win)
+  end
+
   map("j", function()
     if state.sl_idx < #state.sl_stations then
       state.sl_idx = state.sl_idx + 1
       M.sl_update_list()
       M.sl_update_preview()
+      refresh_explain()
     end
   end)
   map("k", function()
@@ -199,6 +212,7 @@ function M.zoom_to_stations(line, close_all_fn)
       state.sl_idx = state.sl_idx - 1
       M.sl_update_list()
       M.sl_update_preview()
+      refresh_explain()
     end
   end)
 
@@ -262,6 +276,32 @@ function M.zoom_to_stations(line, close_all_fn)
   for key, fn in pairs(state.sl_prev_keymaps) do
     pmap(key, fn)
   end
+
+  -- Guard: if focus escapes to a window outside the station list, close everything
+  local sl_wins = { lw, pw }
+  local function is_sl_win(w)
+    for _, sw in ipairs(sl_wins) do if sw == w then return true end end
+    -- also allow the explain float and map window
+    if state.win and w == state.win then return true end
+    if info_mod.explain_win and w == info_mod.explain_win then return true end
+    return false
+  end
+  local guard_au = vim.api.nvim_create_augroup("MetroscopeSLGuard", { clear = true })
+  vim.api.nvim_create_autocmd("WinEnter", {
+    group    = guard_au,
+    callback = function()
+      local cur = vim.api.nvim_get_current_win()
+      if state.zoom ~= "stations" then
+        vim.api.nvim_del_augroup_by_id(guard_au)
+        return
+      end
+      if not is_sl_win(cur) then
+        vim.api.nvim_del_augroup_by_id(guard_au)
+        M.close_station_list()
+        if close_all_fn then close_all_fn() end
+      end
+    end,
+  })
 end
 
 return M

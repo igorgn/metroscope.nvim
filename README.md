@@ -63,7 +63,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
     require("metroscope").setup({
       -- All options are optional
       server      = "http://127.0.0.1:7777",  -- default
-      leader      = "<leader>m",               -- default: <leader>ms to open, <leader>mi to re-index
+      leader      = "<leader>m",               -- default: <leader>ms to open, <leader>ml for station list, <leader>mi to re-index
       module_info = "detailed",                -- "detailed" | "compact"
     })
   end,
