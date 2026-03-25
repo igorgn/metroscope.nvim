@@ -313,7 +313,10 @@ end
 
 -- Open a floating window showing the detailed explanation for a station.
 -- `station_id` is the full id string; explanation is fetched from the server.
-function M.open_explain_float(station_id, station_name)
+-- open_explain_float: show explanation for a station.
+-- If `anchor_win` is provided, the float is anchored to the top-right corner
+-- of that window. Otherwise it opens centered on the editor.
+function M.open_explain_float(station_id, station_name, anchor_win)
   local detail = fetch(config.server .. "/station/" .. station_id)
   local explanation = detail and detail.explanation
   if not explanation or explanation == "" then
@@ -336,8 +339,44 @@ function M.open_explain_float(station_id, station_name)
   table.insert(rows, "")
 
   local H = math.min(#rows + 2, vim.o.lines - 4)
-  local erow = math.floor((vim.o.lines - H) / 2)
-  local ecol = math.floor((vim.o.columns - W) / 2)
+
+  local win_config
+  if anchor_win and vim.api.nvim_win_is_valid(anchor_win) then
+    local pw = vim.api.nvim_win_get_width(anchor_win)
+    win_config = {
+      relative  = "win",
+      win       = anchor_win,
+      anchor    = "NE",
+      row       = 0,
+      col       = pw,   -- NE anchor: col is the right edge of the float
+      width     = math.min(W, pw),
+      height    = H,
+      style     = "minimal",
+      border    = "rounded",
+      title     = "  explain: " .. (station_name or station_id) .. "  ",
+      title_pos = "center",
+      footer     = "  y:yank  q/<Esc>:close  ",
+      footer_pos = "center",
+      zindex    = 150,
+    }
+  else
+    local erow = math.floor((vim.o.lines - H) / 2)
+    local ecol = math.floor((vim.o.columns - W) / 2)
+    win_config = {
+      relative  = "editor",
+      width     = W,
+      height    = H,
+      row       = erow,
+      col       = ecol,
+      style     = "minimal",
+      border    = "rounded",
+      title     = "  explain: " .. (station_name or station_id) .. "  ",
+      title_pos = "center",
+      footer     = "  y:yank  q/<Esc>:close  ",
+      footer_pos = "center",
+      zindex    = 150,
+    }
+  end
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
@@ -345,20 +384,7 @@ function M.open_explain_float(station_id, station_name)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
   vim.bo[buf].modifiable = false
 
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative  = "editor",
-    width     = W,
-    height    = H,
-    row       = erow,
-    col       = ecol,
-    style     = "minimal",
-    border    = "rounded",
-    title     = "  explain: " .. (station_name or station_id) .. "  ",
-    title_pos = "center",
-    footer    = "  y:yank  q/<Esc>:close  ",
-    footer_pos = "center",
-    zindex    = 150,
-  })
+  local win = vim.api.nvim_open_win(buf, true, win_config)
 
   local opts = { buffer = buf, nowait = true, silent = true }
   local function close() vim.api.nvim_win_close(win, true) end

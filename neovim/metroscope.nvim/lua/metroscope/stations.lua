@@ -235,7 +235,7 @@ function M.zoom_to_stations(line, close_all_fn)
   local function sl_explain()
     local s = state.sl_stations and state.sl_stations[state.sl_idx]
     if not s then return end
-    info_mod.open_explain_float(s.id, s.name)
+    info_mod.open_explain_float(s.id, s.name, state.sl_prev_win)
   end
 
   local function focus_list()

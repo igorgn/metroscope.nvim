@@ -249,6 +249,7 @@ fn build_explanation_batch_prompt(functions: &[&crate::parser::ParsedFunction]) 
 For each function below, write 2-4 sentences explaining:\n\
 1. What the function does and why it exists\n\
 2. Any notable implementation details or gotchas\n\
+3. Where to look next — name the most important caller or callee that continues this logic\n\
 Use plain English. Present tense. No code snippets in the response.\n\
 \n\
 Respond with exactly one entry per function in this format:\n\

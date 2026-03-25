@@ -199,7 +199,7 @@ function M.open()
 
   -- If we know which crate the current file belongs to, open that crate's
   -- function view directly. Otherwise fall back to the module map.
-  if has_file and data.focused_crate and data.focused_crate ~= "root" then
+  if has_file and type(data.focused_crate) == "string" and data.focused_crate ~= "root" then
     -- Drill straight into the crate, then position cursor on the focused station
     local crate_url  = config.server .. "/map?crate=" .. vim.uri_encode(data.focused_crate)
     local crate_data = fetch(crate_url)
