@@ -32,6 +32,8 @@ pub struct Summaries {
     pub function_explanations: HashMap<String, String>,
     pub file_summaries: HashMap<String, String>,
     pub system_summary: String,
+    pub tokens_in: u32,
+    pub tokens_out: u32,
 }
 
 // ─── API structs ──────────────────────────────────────────────────────────────
@@ -52,6 +54,13 @@ struct ApiMessage {
 #[derive(Deserialize)]
 struct ApiResponse {
     content: Vec<ContentBlock>,
+    usage: ApiUsage,
+}
+
+#[derive(Deserialize)]
+struct ApiUsage {
+    input_tokens: u32,
+    output_tokens: u32,
 }
 
 #[derive(Deserialize)]
@@ -61,14 +70,15 @@ struct ContentBlock {
 
 // ─── Backend dispatch ─────────────────────────────────────────────────────────
 
-async fn call_claude(backend: &LlmBackend, prompt: &str) -> Result<String> {
+/// Returns (text, input_tokens, output_tokens). CLI backend returns 0 tokens.
+async fn call_claude(backend: &LlmBackend, prompt: &str) -> Result<(String, u32, u32)> {
     match backend {
         LlmBackend::Api { key } => call_via_api(key, prompt).await,
-        LlmBackend::Cli => call_via_cli(prompt),
+        LlmBackend::Cli => call_via_cli(prompt).map(|t| (t, 0, 0)),
     }
 }
 
-async fn call_via_api(api_key: &str, prompt: &str) -> Result<String> {
+async fn call_via_api(api_key: &str, prompt: &str) -> Result<(String, u32, u32)> {
     let client = reqwest::Client::new();
     let req = ApiRequest {
         model: MODEL.to_string(),
@@ -95,12 +105,8 @@ async fn call_via_api(api_key: &str, prompt: &str) -> Result<String> {
     }
 
     let parsed: ApiResponse = resp.json().await.context("Failed to parse API response")?;
-    Ok(parsed
-        .content
-        .into_iter()
-        .map(|b| b.text)
-        .collect::<Vec<_>>()
-        .join(""))
+    let text = parsed.content.into_iter().map(|b| b.text).collect::<Vec<_>>().join("");
+    Ok((text, parsed.usage.input_tokens, parsed.usage.output_tokens))
 }
 
 /// Invoke `claude -p` with the prompt piped to stdin.
@@ -141,6 +147,17 @@ fn call_via_cli(prompt: &str) -> Result<String> {
 pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prompts: &PromptOverrides) -> Result<Summaries> {
     let mut function_summaries: HashMap<String, String> = HashMap::new();
     let mut file_summaries: HashMap<String, String> = HashMap::new();
+    let mut tokens_in: u32 = 0;
+    let mut tokens_out: u32 = 0;
+
+    macro_rules! call {
+        ($backend:expr, $prompt:expr) => {{
+            let (text, ti, to) = call_claude($backend, $prompt).await?;
+            tokens_in += ti;
+            tokens_out += to;
+            text
+        }};
+    }
 
     // --- Function summaries (batched) ---
     let all_functions: Vec<_> = files.iter().flat_map(|f| f.functions.iter()).collect();
@@ -155,7 +172,7 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prom
     for (i, batch) in batches.iter().enumerate() {
         println!("  Batch {}/{}", i + 1, batches.len());
         let prompt = build_function_batch_prompt(batch, prompts.function_prompt.as_deref());
-        let response = call_claude(backend, &prompt).await?;
+        let response = call!(backend, &prompt);
         parse_function_batch_response(&response, batch, &mut function_summaries);
     }
 
@@ -170,7 +187,7 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prom
     for (i, batch) in expl_batches.iter().enumerate() {
         println!("  Explanation batch {}/{}", i + 1, expl_batches.len());
         let prompt = build_explanation_batch_prompt(batch);
-        let response = call_claude(backend, &prompt).await?;
+        let response = call!(backend, &prompt);
         parse_function_batch_response(&response, batch, &mut function_explanations);
     }
 
@@ -181,20 +198,22 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prom
             continue;
         }
         let prompt = build_file_prompt(file, prompts.file_prompt.as_deref());
-        let summary = call_claude(backend, &prompt).await?;
+        let summary = call!(backend, &prompt);
         file_summaries.insert(file.file_id.clone(), summary.trim().to_string());
     }
 
     // --- System summary ---
     println!("  Generating system summary...");
     let system_prompt = build_system_prompt(files, &file_summaries, prompts.system_prompt.as_deref());
-    let system_summary = call_claude(backend, &system_prompt).await?;
+    let system_summary = call!(backend, &system_prompt);
 
     Ok(Summaries {
         function_summaries,
         function_explanations,
         file_summaries,
         system_summary: system_summary.trim().to_string(),
+        tokens_in,
+        tokens_out,
     })
 }
 

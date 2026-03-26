@@ -1,4 +1,5 @@
 mod map;
+mod export;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -49,6 +50,7 @@ async fn main() -> Result<()> {
         .route("/module-map", get(handle_module_map))
         .route("/station/*id", get(handle_station))
         .route("/connections", get(handle_connections))
+        .route("/export/svg", get(handle_export_svg))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -189,4 +191,14 @@ async fn handle_connections(
 
 async fn handle_module_map(State(index): State<AppState>) -> impl IntoResponse {
     Json(map::build_module_map(&index))
+}
+
+// ── /export/svg ───────────────────────────────────────────────────────────────
+
+async fn handle_export_svg(State(index): State<AppState>) -> impl IntoResponse {
+    let svg = export::render_svg(&index);
+    (
+        [(axum::http::header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
+        svg,
+    )
 }

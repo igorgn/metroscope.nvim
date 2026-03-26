@@ -348,6 +348,12 @@ function M.setup(opts)
   local leader = opts.leader or "<leader>m"
   vim.keymap.set("n", leader .. "s", M.open,          { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "l", M.open_stations, { desc = "Metroscope: open station list for current file" })
+  vim.keymap.set("n", leader .. "e", function()
+    local url = config.server .. "/export/svg"
+    local open_cmd = vim.fn.has("mac") == 1 and "open" or "xdg-open"
+    vim.fn.jobstart({ open_cmd, url }, { detach = true })
+    vim.notify("Metroscope: opening export in browser…", vim.log.levels.INFO)
+  end, { desc = "Metroscope: export SVG diagram" })
   vim.keymap.set("n", leader .. "i", function()
     M.index(vim.fn.getcwd(), vim.env.ANTHROPIC_API_KEY)
   end, { desc = "Metroscope: re-index" })

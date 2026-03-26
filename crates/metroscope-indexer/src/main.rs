@@ -230,8 +230,23 @@ async fn index_project(
     let index_path = index_dir.join("index.json");
     std::fs::write(&index_path, serde_json::to_string_pretty(&index)?)?;
 
-    println!("Index written to {}", index_path.display());
+        println!("Index written to {}", index_path.display());
     println!("  {} stations, {} lines", index.stations.len(), index.lines.len());
+
+    // Token usage report (only meaningful when using the API backend)
+    let total = summaries.tokens_in + summaries.tokens_out;
+    if total > 0 {
+        // Haiku pricing: $0.80 / MTok input, $4.00 / MTok output (as of 2025)
+        let cost_usd = (summaries.tokens_in as f64 / 1_000_000.0) * 0.80
+            + (summaries.tokens_out as f64 / 1_000_000.0) * 4.00;
+        println!();
+        println!("━━━ Token usage ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!("  Input  tokens : {:>10}", summaries.tokens_in);
+        println!("  Output tokens : {:>10}", summaries.tokens_out);
+        println!("  Total  tokens : {:>10}", total);
+        println!("  Est. cost     : ${:.4}", cost_usd);
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    }
 
     Ok(())
 }
