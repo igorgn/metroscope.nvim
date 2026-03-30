@@ -7,8 +7,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
-    response::IntoResponse,
+    http::{Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -26,6 +29,10 @@ struct Cli {
     index_path: PathBuf,
     #[arg(long, default_value = "7777")]
     port: u16,
+    /// Optional bearer token. When set, every request must include
+    /// `Authorization: Bearer <token>` or a 401 is returned.
+    #[arg(long)]
+    auth_token: Option<String>,
 }
 
 type AppState = Arc<RwLock<Index>>;
@@ -34,6 +41,24 @@ fn load_index(index_file: &PathBuf) -> Result<Index> {
     let json = std::fs::read_to_string(index_file)
         .with_context(|| format!("Cannot read {}", index_file.display()))?;
     serde_json::from_str(&json).context("Failed to parse index.json")
+}
+
+async fn require_bearer(
+    State(expected): State<Arc<Option<String>>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    if let Some(token) = expected.as_ref() {
+        let provided = req
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+        if provided != Some(token.as_str()) {
+            return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+        }
+    }
+    next.run(req).await
 }
 
 #[tokio::main]
@@ -60,6 +85,15 @@ async fn main() -> Result<()> {
             watch_index(state, index_file).await;
         });
     }
+    let state: AppState = Arc::new(index);
+    let state: AppState = Arc::new(index);
+    let auth_state: Arc<Option<String>> = Arc::new(cli.auth_token.clone());
+
+    if cli.auth_token.is_some() {
+        println!("Auth: bearer token required");
+    } else {
+        println!("Auth: none (consider --auth-token for security)");
+    }
 
     let app = Router::new()
         .route("/map", get(handle_map))
@@ -68,6 +102,10 @@ async fn main() -> Result<()> {
         .route("/connections", get(handle_connections))
         .route("/export/svg", get(handle_export_svg))
         .route("/quests", get(handle_quests))
+        .layer(middleware::from_fn_with_state(
+            auth_state,
+            require_bearer,
+        ))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

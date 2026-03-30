@@ -18,7 +18,10 @@ local M = {}
 -- ─── HTTP ─────────────────────────────────────────────────────────────────────
 
 local function fetch(url)
-  local handle = io.popen('curl -s --max-time 2 "' .. url .. '"')
+  local auth = config.auth_token
+    and (' -H "Authorization: Bearer ' .. config.auth_token .. '"')
+    or  ""
+  local handle = io.popen('curl -s --max-time 2' .. auth .. ' "' .. url .. '"')
   if not handle then return nil end
   local result = handle:read("*a")
   handle:close()
@@ -605,6 +608,7 @@ end
 function M.setup(opts)
   opts = opts or {}
   if opts.server      then config.server      = opts.server      end
+  if opts.auth_token  then config.auth_token  = opts.auth_token  end
   if opts.serena_dir  then config.serena_dir  = opts.serena_dir  end
   if opts.module_info then config.module_info = opts.module_info end
   if opts.prompts     then config.prompts     = opts.prompts     end

@@ -46,7 +46,10 @@ local function focused_box_right_col()
 end
 
 local function fetch(url)
-  local handle = io.popen('curl -s --max-time 2 "' .. url .. '"')
+  local auth = config.auth_token
+    and (' -H "Authorization: Bearer ' .. config.auth_token .. '"')
+    or  ""
+  local handle = io.popen('curl -s --max-time 2' .. auth .. ' "' .. url .. '"')
   if not handle then return nil end
   local result = handle:read("*a")
   handle:close()
