@@ -1,0 +1,2562 @@
+{
+  "project_root": "/Users/igorgn/Documents/projects/igorgn/metroscope",
+  "created_at": 1774905093,
+  "system_summary": "Metroscope indexes a Rust codebase with Claude-generated summaries and serves a navigable function-level map via HTTP for editor integration.",
+  "stations": {
+    "crates/metroscope-server/src/main.rs::handle_module_map": {
+      "id": "crates/metroscope-server/src/main.rs::handle_module_map",
+      "name": "handle_module_map",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/main.rs",
+        "line_start": 193,
+        "line_end": 195
+      },
+      "summary": "Returns crate-level module map of the index.",
+      "explanation": "Returns the crate-level module overview by delegating entirely to `map::build_module_map`. This is the top zoom level in the Neovim plugin — the view the user sees before drilling into a specific crate.",
+      "connections": [
+        {
+          "to": "Json",
+          "kind": "calls"
+        },
+        {
+          "to": "build_module_map",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/main.rs"
+    },
+    "crates/metroscope-server/src/main.rs::handle_station": {
+      "id": "crates/metroscope-server/src/main.rs::handle_station",
+      "name": "handle_station",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/main.rs",
+        "line_start": 115,
+        "line_end": 175
+      },
+      "summary": "Returns full station detail with resolved call and called-by connections.",
+      "explanation": "Returns full detail for a single station including resolved `calls` and `called_by` lists. Connections that point to unknown station IDs (unresolved external calls) are silently dropped — only connections where the target has a known file are included. The Neovim info popup reads this endpoint when the user opens a station detail view.",
+      "connections": [
+        {
+          "to": "Json",
+          "kind": "calls"
+        },
+        {
+          "to": "as_str",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "is_empty",
+          "kind": "calls"
+        },
+        {
+          "to": "last",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "split",
+          "kind": "calls"
+        },
+        {
+          "to": "to_lowercase",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "to_value",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/main.rs"
+    },
+    "crates/metroscope-server/src/main.rs::main": {
+      "id": "crates/metroscope-server/src/main.rs::main",
+      "name": "main",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/main.rs",
+        "line_start": 31,
+        "line_end": 65
+      },
+      "summary": "Loads index.json, sets up axum router with all endpoints, starts HTTP server.",
+      "explanation": "Loads `index.json` from disk, wraps it in an `Arc` as shared `AppState`, registers all six HTTP routes, and starts the axum TCP listener. The index is read-only after startup — no hot reload. Look at the individual `handle_*` functions for per-endpoint logic.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "bind",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "from_str",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "join",
+          "kind": "calls"
+        },
+        {
+          "to": "layer",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "parse",
+          "kind": "calls"
+        },
+        {
+          "to": "permissive",
+          "kind": "calls"
+        },
+        {
+          "to": "read_to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "route",
+          "kind": "calls"
+        },
+        {
+          "to": "serve",
+          "kind": "calls"
+        },
+        {
+          "to": "with_context",
+          "kind": "calls"
+        },
+        {
+          "to": "with_state",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/main.rs"
+    },
+    "crates/metroscope-server/src/main.rs::handle_export_svg": {
+      "id": "crates/metroscope-server/src/main.rs::handle_export_svg",
+      "name": "handle_export_svg",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/main.rs",
+        "line_start": 199,
+        "line_end": 205
+      },
+      "summary": "Renders and returns the index as an SVG image.",
+      "explanation": "Renders the full index as an SVG by calling `export::render_svg`, then returns it with the correct `image/svg+xml` content-type header. This is a synchronous, CPU-bound operation on the hot path — for large indexes it could be slow, but there's no caching layer.",
+      "connections": [
+        {
+          "to": "render_svg",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/main.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::build_explanation_batch_prompt": {
+      "id": "crates/metroscope-indexer/src/llm.rs::build_explanation_batch_prompt",
+      "name": "build_explanation_batch_prompt",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 298,
+        "line_end": 319
+      },
+      "summary": "Builds a batched prompt requesting 2–4 sentence explanations for each function.",
+      "explanation": "Constructs the prompt that produces the multi-sentence explanations shown in the station detail view, requesting a caller/callee navigation hint as the third sentence. It uses the same `id|explanation` format as the summary prompt so `parse_function_batch_response` can handle both. This prompt is what the current system prompt you are running was generated from.",
+      "connections": [
+        {
+          "to": "push_str",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-server/src/export.rs::text": {
+      "id": "crates/metroscope-server/src/export.rs::text",
+      "name": "text",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 123,
+        "line_end": 136
+      },
+      "summary": "Generates an SVG text element string with given position and styling.",
+      "explanation": "Thin SVG string builder for `<text>` elements. The `extra` parameter handles one-off attributes like `font-style=\"italic\"` or `letter-spacing` without combinatorial overloads. Called throughout `render_svg` for every label: system summary, crate names, file labels, station names, kind badges, explanation lines, and legend text.",
+      "connections": [],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::build_quests_prompt": {
+      "id": "crates/metroscope-indexer/src/llm.rs::build_quests_prompt",
+      "name": "build_quests_prompt",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 360,
+        "line_end": 382
+      },
+      "summary": "Builds a prompt requesting architectural improvement quests from crate summaries.",
+      "explanation": "Constructs the prompt that asks Claude to identify 3-7 system-level architectural concerns, deliberately steering away from code style or function-level feedback. The four-field pipe-delimited format it requests maps directly to the `Quest` struct fields parsed by `parse_quests`. Component names and difficulty labels must match exactly what `parse_quests` expects.",
+      "connections": [
+        {
+          "to": "push_str",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-server/src/main.rs::handle_quests": {
+      "id": "crates/metroscope-server/src/main.rs::handle_quests",
+      "name": "handle_quests",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/main.rs",
+        "line_start": 209,
+        "line_end": 211
+      },
+      "summary": "Returns the quests list from the index.",
+      "explanation": "Returns the `quests` field from the index as JSON. Quests are generated by the LLM at index time and stored verbatim; this handler just reads them back out with no transformation.",
+      "connections": [
+        {
+          "to": "Json",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/main.rs"
+    },
+    "crates/metroscope-server/src/export.rs::rect": {
+      "id": "crates/metroscope-server/src/export.rs::rect",
+      "name": "rect",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 107,
+        "line_end": 121
+      },
+      "summary": "Generates an SVG rect element string with given dimensions and styling.",
+      "explanation": "Thin SVG string builder for `<rect>` elements with rounded corners. The `extra` parameter appends arbitrary SVG attributes (e.g. `filter=\"url(#sh)\"`) without requiring a new function signature for each variant. Used extensively in `render_svg` for crate panels, station boxes, accent bars, and header overlays.",
+      "connections": [],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-indexer/src/serena.rs::parse_referencing_symbols": {
+      "id": "crates/metroscope-indexer/src/serena.rs::parse_referencing_symbols",
+      "name": "parse_referencing_symbols",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/serena.rs",
+        "line_start": 120,
+        "line_end": 145
+      },
+      "summary": "Parses JSON response into caller references grouped by file and symbol kind.",
+      "explanation": "Parses the JSON response from Serena's `find_referencing_symbols` MCP call into a flat list of `CallerRef` structs. The response is a nested object keyed by file path, then symbol kind, then an array of symbols — this function flattens all three levels, discarding the kind grouping since only the name and file matter. The result feeds directly into `serena::enrich`, which uses these refs to build `CalledBy` connections on stations.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "as_str",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "from_str",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/serena.rs"
+    },
+    "crates/metroscope-indexer/src/color.rs::for_file": {
+      "id": "crates/metroscope-indexer/src/color.rs::for_file",
+      "name": "for_file",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/color.rs",
+        "line_start": 14,
+        "line_end": 19
+      },
+      "summary": "Returns a deterministic palette color for a file based on its FNV hash.",
+      "explanation": "Deterministically assigns a color to a file by hashing its ID with FNV-1a and indexing into a fixed palette. Because the hash is stable across runs, the same file always gets the same color without storing any state. The color is used by the Neovim render layer to visually distinguish which file each station belongs to on the map.",
+      "connections": [
+        {
+          "to": "bytes",
+          "kind": "calls"
+        },
+        {
+          "to": "fold",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "wrapping_add",
+          "kind": "calls"
+        },
+        {
+          "to": "wrapping_mul",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/color.rs"
+    },
+    "crates/metroscope-indexer/src/main.rs::index_project": {
+      "id": "crates/metroscope-indexer/src/main.rs::index_project",
+      "name": "index_project",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/main.rs",
+        "line_start": 73,
+        "line_end": 253
+      },
+      "summary": "Walks Rust files, generates LLM summaries, builds station/line index, optionally enriches with Serena, writes index.json.",
+      "explanation": "Orchestrates the full indexing pipeline: walks the filesystem for Rust files, parses them with tree-sitter, calls the LLM in batches for summaries and explanations, builds the station/line graph, optionally enriches with Serena `CalledBy` edges, then serializes everything to `.metroscope/index.json`. The Serena enrichment is best-effort — a failure prints a warning and falls back to the tree-sitter-only call graph. After this runs, `metroscope-server` can serve the resulting index.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "as_secs",
+          "kind": "calls"
+        },
+        {
+          "to": "canonicalize",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "cloned",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "create_dir_all",
+          "kind": "calls"
+        },
+        {
+          "to": "duration_since",
+          "kind": "calls"
+        },
+        {
+          "to": "enrich",
+          "kind": "calls"
+        },
+        {
+          "to": "extension",
+          "kind": "calls"
+        },
+        {
+          "to": "file_type",
+          "kind": "calls"
+        },
+        {
+          "to": "filter",
+          "kind": "calls"
+        },
+        {
+          "to": "filter_map",
+          "kind": "calls"
+        },
+        {
+          "to": "for_file",
+          "kind": "calls"
+        },
+        {
+          "to": "generate_summaries",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "get_mut",
+          "kind": "calls"
+        },
+        {
+          "to": "insert",
+          "kind": "calls"
+        },
+        {
+          "to": "into_iter",
+          "kind": "calls"
+        },
+        {
+          "to": "into_owned",
+          "kind": "calls"
+        },
+        {
+          "to": "is_file",
+          "kind": "calls"
+        },
+        {
+          "to": "is_ignored",
+          "kind": "calls"
+        },
+        {
+          "to": "is_some",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "join",
+          "kind": "calls"
+        },
+        {
+          "to": "keys",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "now",
+          "kind": "calls"
+        },
+        {
+          "to": "ok",
+          "kind": "calls"
+        },
+        {
+          "to": "parse",
+          "kind": "calls"
+        },
+        {
+          "to": "path",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "read_to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "replace",
+          "kind": "calls"
+        },
+        {
+          "to": "strip_prefix",
+          "kind": "calls"
+        },
+        {
+          "to": "sum",
+          "kind": "calls"
+        },
+        {
+          "to": "to_path_buf",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string_lossy",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string_pretty",
+          "kind": "calls"
+        },
+        {
+          "to": "trim_start_matches",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or_default",
+          "kind": "calls"
+        },
+        {
+          "to": "write",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/main.rs"
+    },
+    "crates/metroscope-server/src/export.rs::line_el": {
+      "id": "crates/metroscope-server/src/export.rs::line_el",
+      "name": "line_el",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 138,
+        "line_end": 142
+      },
+      "summary": "Generates an SVG line element string between two points.",
+      "explanation": "Thin SVG string builder for `<line>` elements. The `extra` parameter is used in practice to attach arrowhead markers (`marker-end=\"url(#arr)\"`). Called in `render_svg` for the horizontal divider inside each station box and for the two legend arrows at the bottom.",
+      "connections": [],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-indexer/src/parser/rust.rs::is_inside_impl": {
+      "id": "crates/metroscope-indexer/src/parser/rust.rs::is_inside_impl",
+      "name": "is_inside_impl",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/parser/rust.rs",
+        "line_start": 145,
+        "line_end": 154
+      },
+      "summary": "Returns true if the given node is nested inside an `impl` block.",
+      "explanation": "Walks the tree-sitter node's ancestor chain looking for an `impl_item` node to classify a function as a method. It stops at the first match, so nested impl blocks (rare in Rust but valid) are handled correctly. This classification feeds the `StationKind` field used by the map renderer to style method nodes differently.",
+      "connections": [
+        {
+          "to": "kind",
+          "kind": "calls"
+        },
+        {
+          "to": "parent",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/parser/rust.rs"
+    },
+    "crates/metroscope-server/src/map.rs::station_has_cross_line": {
+      "id": "crates/metroscope-server/src/map.rs::station_has_cross_line",
+      "name": "station_has_cross_line",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/map.rs",
+        "line_start": 107,
+        "line_end": 120
+      },
+      "summary": "Returns true if any of the station's connections point to a different file.",
+      "explanation": "Determines whether a station has any connection that crosses into a different file (line). It exists to drive the visual indicator on the map showing which functions call into or are called from other files. The dual lookup strategy handles two index shapes: Serena-enriched indexes store full qualified IDs so a direct hash lookup works, while tree-sitter-only indexes store bare function names requiring a linear scan by name across all stations. The main caller is `build_map` (or equivalent map assembly logic) which uses this flag to annotate each station node before sending the response.",
+      "connections": [
+        {
+          "to": "any",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "last",
+          "kind": "calls"
+        },
+        {
+          "to": "split",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        },
+        {
+          "to": "values",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/map.rs"
+    },
+    "crates/metroscope-server/src/map.rs::crate_id_of": {
+      "id": "crates/metroscope-server/src/map.rs::crate_id_of",
+      "name": "crate_id_of",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/map.rs",
+        "line_start": 243,
+        "line_end": 250
+      },
+      "summary": "Extracts crate name from a file path, returning \"root\" for non-crate paths.",
+      "explanation": "Extracts the crate name from a file ID that follows the `crates/<name>/src/...` workspace layout convention. It exists because the module map needs to group files by crate, and the crate identity is embedded in the path rather than stored as a separate field. Files outside the `crates/` directory (e.g. a root `src/main.rs`) fall back to the sentinel string `\"root\"`. This is called by both `build_module_map` and `build_map` whenever a station needs to be grouped or a cross-crate edge needs to be attributed.",
+      "connections": [
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "splitn",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/map.rs"
+    },
+    "crates/metroscope-indexer/src/parser/rust.rs::extract_functions": {
+      "id": "crates/metroscope-indexer/src/parser/rust.rs::extract_functions",
+      "name": "extract_functions",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/parser/rust.rs",
+        "line_start": 77,
+        "line_end": 143
+      },
+      "summary": "Extracts all function definitions from a syntax tree using a tree-sitter query.",
+      "explanation": "Uses a tree-sitter query to find every `function_item` node, extracts name, body text, line range, and callee list, and deduplicates by ID to handle macros that might emit the same name twice. The `is_inside_impl` check determines whether to tag a function as a `Method` or `Function`, which affects how it's displayed. Results are sorted by line number so the index reflects source order.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "as_bytes",
+          "kind": "calls"
+        },
+        {
+          "to": "capture_index_for_name",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "end_byte",
+          "kind": "calls"
+        },
+        {
+          "to": "end_position",
+          "kind": "calls"
+        },
+        {
+          "to": "extract_calls",
+          "kind": "calls"
+        },
+        {
+          "to": "find",
+          "kind": "calls"
+        },
+        {
+          "to": "insert",
+          "kind": "calls"
+        },
+        {
+          "to": "into",
+          "kind": "calls"
+        },
+        {
+          "to": "is_inside_impl",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "matches",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "next",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "sort_by_key",
+          "kind": "calls"
+        },
+        {
+          "to": "start_byte",
+          "kind": "calls"
+        },
+        {
+          "to": "start_position",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/parser/rust.rs"
+    },
+    "crates/metroscope-server/src/export.rs::xml": {
+      "id": "crates/metroscope-server/src/export.rs::xml",
+      "name": "xml",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 66,
+        "line_end": 71
+      },
+      "summary": "Escapes special HTML/XML characters in a string.",
+      "explanation": "Escapes the five XML special characters so station names and summaries can be embedded safely inside SVG text and attribute values. Called throughout `render_svg` wherever user-derived strings are written into the SVG output.",
+      "connections": [
+        {
+          "to": "replace",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-types/src/lib.rs::station_at": {
+      "id": "crates/metroscope-types/src/lib.rs::station_at",
+      "name": "station_at",
+      "kind": "method",
+      "location": {
+        "file": "crates/metroscope-types/src/lib.rs",
+        "line_start": 105,
+        "line_end": 111
+      },
+      "summary": "Finds the station whose location spans the given file and line number.",
+      "explanation": "Performs a reverse lookup from a source location to a station by scanning all stations for one whose file and line range covers the given position. It's used by the server's `/map` endpoint to identify which function the cursor is currently inside. The most important caller is the map handler in `metroscope-server`, which passes the file and line from the query string.",
+      "connections": [
+        {
+          "to": "find",
+          "kind": "calls"
+        },
+        {
+          "to": "values",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-types/src/lib.rs"
+    },
+    "crates/metroscope-server/src/export.rs::crate_id_of": {
+      "id": "crates/metroscope-server/src/export.rs::crate_id_of",
+      "name": "crate_id_of",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 73,
+        "line_end": 80
+      },
+      "summary": "Extracts crate name from a line ID path like crates/<name>/src/....",
+      "explanation": "Extracts the crate name from a line ID like `crates/metroscope-server/src/main.rs` by splitting on `/` and returning the second segment. Paths that don't match the `crates/<name>/...` pattern (e.g. workspace root files) return `\"root\"`. Used in `render_svg` to group lines into crate panels and to color cross-crate arrows differently.",
+      "connections": [
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "splitn",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-server/src/export.rs::kind_badge": {
+      "id": "crates/metroscope-server/src/export.rs::kind_badge",
+      "name": "kind_badge",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 82,
+        "line_end": 93
+      },
+      "summary": "Returns a short text badge string for a given station kind.",
+      "explanation": "Maps a `StationKind` variant to a short display string for use in SVG station boxes. The badges are intentionally compact (2-3 chars) to fit in the top-right corner of a box without crowding the function name. Called once per station inside `render_svg`.",
+      "connections": [],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-indexer/src/parser/rust.rs::new": {
+      "id": "crates/metroscope-indexer/src/parser/rust.rs::new",
+      "name": "new",
+      "kind": "method",
+      "location": {
+        "file": "crates/metroscope-indexer/src/parser/rust.rs",
+        "line_start": 46,
+        "line_end": 50
+      },
+      "summary": "Constructs a new Rust parser instance with the tree-sitter Rust language.",
+      "explanation": "Initializes the `RustParser` struct by loading the tree-sitter Rust grammar, returning an error if the grammar fails to load. It's a thin constructor with no notable gotchas; the grammar comes from the `tree-sitter-rust` crate compiled into the binary. The only consumer is the indexer's main entry point which constructs one parser and reuses it across all files.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "into",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/parser/rust.rs"
+    },
+    "crates/metroscope-indexer/src/parser/rust.rs::disambiguate_name": {
+      "id": "crates/metroscope-indexer/src/parser/rust.rs::disambiguate_name",
+      "name": "disambiguate_name",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/parser/rust.rs",
+        "line_start": 11,
+        "line_end": 37
+      },
+      "summary": "Derives a human-readable short name for a file, prefixed with its crate name.",
+      "explanation": "Produces a human-readable display name for a file by combining the crate name (stripped of the `metroscope-` prefix) with the file stem, e.g. `indexer/parser`. It handles the common `crates/<name>/src/<file>` layout and falls back to just the stem for files outside that structure. The result is stored as `file_name` in `ParsedFile` and shown in the module map view.",
+      "connections": [
+        {
+          "to": "and_then",
+          "kind": "calls"
+        },
+        {
+          "to": "file_name",
+          "kind": "calls"
+        },
+        {
+          "to": "file_stem",
+          "kind": "calls"
+        },
+        {
+          "to": "into_owned",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "nth",
+          "kind": "calls"
+        },
+        {
+          "to": "parent",
+          "kind": "calls"
+        },
+        {
+          "to": "splitn",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string_lossy",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or_else",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/parser/rust.rs"
+    },
+    "crates/metroscope-indexer/src/serena.rs::enrich": {
+      "id": "crates/metroscope-indexer/src/serena.rs::enrich",
+      "name": "enrich",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/serena.rs",
+        "line_start": 34,
+        "line_end": 110
+      },
+      "summary": "Spawns the Serena MCP server and queries caller references for each function ID.",
+      "explanation": "Spawns a Serena MCP server as a subprocess via `uvx` (so no local installation is needed) and queries it for callers of each indexed function using the `find_referencing_symbols` tool. It iterates functions sequentially rather than concurrently to avoid overwhelming the LSP process, and per-function failures are logged and skipped rather than aborting the whole enrichment. The resulting `SerenaIndex` is merged into the main index to populate `called_by` edges that tree-sitter alone can't resolve.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "and_then",
+          "kind": "calls"
+        },
+        {
+          "to": "arg",
+          "kind": "calls"
+        },
+        {
+          "to": "as_ref",
+          "kind": "calls"
+        },
+        {
+          "to": "as_text",
+          "kind": "calls"
+        },
+        {
+          "to": "call_tool",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "drop",
+          "kind": "calls"
+        },
+        {
+          "to": "first",
+          "kind": "calls"
+        },
+        {
+          "to": "from_value",
+          "kind": "calls"
+        },
+        {
+          "to": "inherit",
+          "kind": "calls"
+        },
+        {
+          "to": "insert",
+          "kind": "calls"
+        },
+        {
+          "to": "is_empty",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "parse_referencing_symbols",
+          "kind": "calls"
+        },
+        {
+          "to": "piped",
+          "kind": "calls"
+        },
+        {
+          "to": "serve",
+          "kind": "calls"
+        },
+        {
+          "to": "split_once",
+          "kind": "calls"
+        },
+        {
+          "to": "stderr",
+          "kind": "calls"
+        },
+        {
+          "to": "stdin",
+          "kind": "calls"
+        },
+        {
+          "to": "stdout",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string_lossy",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap",
+          "kind": "calls"
+        },
+        {
+          "to": "with_arguments",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/serena.rs"
+    },
+    "crates/metroscope-server/src/export.rs::word_wrap": {
+      "id": "crates/metroscope-server/src/export.rs::word_wrap",
+      "name": "word_wrap",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 43,
+        "line_end": 64
+      },
+      "summary": "Splits text into lines not exceeding cols characters, breaking on whitespace.",
+      "explanation": "Breaks a string into lines that fit within a given column width by splitting on whitespace and greedily packing words. Always returns at least one element (an empty string for blank input), which prevents index-out-of-bounds issues in callers that assume at least one line exists. Used by `render_svg` to compute station box heights before layout begins.",
+      "connections": [
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "is_empty",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "push_str",
+          "kind": "calls"
+        },
+        {
+          "to": "split_whitespace",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::generate_summaries": {
+      "id": "crates/metroscope-indexer/src/llm.rs::generate_summaries",
+      "name": "generate_summaries",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 148,
+        "line_end": 250
+      },
+      "summary": "Generates function summaries, explanations, file summaries, system summary, and quests for all parsed files.",
+      "explanation": "Orchestrates all LLM calls during indexing: it batches function summaries, function explanations, file summaries, a system summary, and architectural quests into sequential Claude calls, accumulating token usage throughout. The macro `call!` is used to reduce boilerplate while keeping token counts centralized. The result feeds directly into the index builder that assembles the final `index.json`.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "as_deref",
+          "kind": "calls"
+        },
+        {
+          "to": "build_explanation_batch_prompt",
+          "kind": "calls"
+        },
+        {
+          "to": "build_file_prompt",
+          "kind": "calls"
+        },
+        {
+          "to": "build_function_batch_prompt",
+          "kind": "calls"
+        },
+        {
+          "to": "build_quests_prompt",
+          "kind": "calls"
+        },
+        {
+          "to": "build_system_prompt",
+          "kind": "calls"
+        },
+        {
+          "to": "chunks",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "entry",
+          "kind": "calls"
+        },
+        {
+          "to": "enumerate",
+          "kind": "calls"
+        },
+        {
+          "to": "flat_map",
+          "kind": "calls"
+        },
+        {
+          "to": "insert",
+          "kind": "calls"
+        },
+        {
+          "to": "into_iter",
+          "kind": "calls"
+        },
+        {
+          "to": "is_empty",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "join",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "or_default",
+          "kind": "calls"
+        },
+        {
+          "to": "parse_function_batch_response",
+          "kind": "calls"
+        },
+        {
+          "to": "parse_quests",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "splitn",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "trim",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::build_function_batch_prompt": {
+      "id": "crates/metroscope-indexer/src/llm.rs::build_function_batch_prompt",
+      "name": "build_function_batch_prompt",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 254,
+        "line_end": 274
+      },
+      "summary": "Builds a batched prompt asking Claude to summarize a slice of functions.",
+      "explanation": "Assembles the prompt for a batch of functions requesting one-line summaries, optionally replacing the instruction prefix with a user-supplied override. Functions are embedded as fenced Rust code blocks with their IDs so the response can be parsed back with `parse_function_batch_response`. The batch size is controlled upstream in `generate_summaries`.",
+      "connections": [
+        {
+          "to": "push_str",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-indexer/src/main.rs::main": {
+      "id": "crates/metroscope-indexer/src/main.rs::main",
+      "name": "main",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/main.rs",
+        "line_start": 52,
+        "line_end": 71
+      },
+      "summary": "Parses CLI args and dispatches to index_project with configured LLM backend.",
+      "explanation": "Entry point that parses CLI args and dispatches to `index_project`. It handles the two LLM backends (API key vs `claude` CLI fallback) and assembles the `PromptOverrides` struct before passing control along. The only command currently is `Index`; look at `index_project` for where the real work happens.",
+      "connections": [
+        {
+          "to": "as_deref",
+          "kind": "calls"
+        },
+        {
+          "to": "index_project",
+          "kind": "calls"
+        },
+        {
+          "to": "parse",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/main.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::build_system_prompt": {
+      "id": "crates/metroscope-indexer/src/llm.rs::build_system_prompt",
+      "name": "build_system_prompt",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 337,
+        "line_end": 358
+      },
+      "summary": "Builds a prompt asking Claude to summarize the entire project from file summaries.",
+      "explanation": "Assembles a prompt for the top-level project summary by listing every file alongside its already-generated file summary. Building on file summaries rather than raw source keeps the prompt compact regardless of project size. Its output is then passed to `build_quests_prompt` to ground the architectural recommendations.",
+      "connections": [
+        {
+          "to": "as_str",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "join",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-server/src/main.rs::handle_map": {
+      "id": "crates/metroscope-server/src/main.rs::handle_map",
+      "name": "handle_map",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/main.rs",
+        "line_start": 78,
+        "line_end": 87
+      },
+      "summary": "Returns map view for a file/line position or crate filter.",
+      "explanation": "Resolves the optional `file`/`line` query params to a focused station, then delegates to `map::build_map_response` for the full response shape. The crate filter passed in narrows the returned lines to a single crate's worth of functions, which is how the Neovim plugin opens a per-crate view.",
+      "connections": [
+        {
+          "to": "Json",
+          "kind": "calls"
+        },
+        {
+          "to": "as_deref",
+          "kind": "calls"
+        },
+        {
+          "to": "build_map_response",
+          "kind": "calls"
+        },
+        {
+          "to": "station_at",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/main.rs"
+    },
+    "crates/metroscope-server/src/main.rs::handle_connections": {
+      "id": "crates/metroscope-server/src/main.rs::handle_connections",
+      "name": "handle_connections",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/main.rs",
+        "line_start": 184,
+        "line_end": 189
+      },
+      "summary": "Returns cross-file connection summary for a given file ID.",
+      "explanation": "Thin handler that forwards to `map::build_file_connections` with the `file` query parameter. Provides a cross-file connection summary used by the Neovim plugin's connections view.",
+      "connections": [
+        {
+          "to": "Json",
+          "kind": "calls"
+        },
+        {
+          "to": "build_file_connections",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/main.rs"
+    },
+    "crates/metroscope-server/src/map.rs::build_file_connections": {
+      "id": "crates/metroscope-server/src/map.rs::build_file_connections",
+      "name": "build_file_connections",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/map.rs",
+        "line_start": 148,
+        "line_end": 215
+      },
+      "summary": "Builds cross-file call and called-by links for all stations in a file.",
+      "explanation": "Computes all cross-file call relationships for a given file, producing a `FileConnections` struct grouped by target file. It exists to power the `/connections` endpoint, which the Neovim plugin uses to show what a file calls into and what calls into it. The same two-phase resolution (full ID then name-only fallback) appears here as in `station_has_cross_line`; same gotcha applies — name-only matching can produce false positives if two functions share a name across files. The `to_file_links` closure at the end enriches the raw file ID keys with display name and color pulled from `index.lines`, making the response self-contained for the UI.",
+      "connections": [
+        {
+          "to": "Some",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "cmp",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "entry",
+          "kind": "calls"
+        },
+        {
+          "to": "filter",
+          "kind": "calls"
+        },
+        {
+          "to": "filter_map",
+          "kind": "calls"
+        },
+        {
+          "to": "find",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "into_iter",
+          "kind": "calls"
+        },
+        {
+          "to": "last",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "or_default",
+          "kind": "calls"
+        },
+        {
+          "to": "or_else",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "sort_by",
+          "kind": "calls"
+        },
+        {
+          "to": "split",
+          "kind": "calls"
+        },
+        {
+          "to": "to_file_links",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        },
+        {
+          "to": "values",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/map.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::build_file_prompt": {
+      "id": "crates/metroscope-indexer/src/llm.rs::build_file_prompt",
+      "name": "build_file_prompt",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 321,
+        "line_end": 335
+      },
+      "summary": "Builds a prompt asking Claude to summarize a single source file.",
+      "explanation": "Builds a prompt asking Claude for a one-sentence module summary, embedding the file's function names and up to the first 6000 bytes of source. The source truncation avoids token overuse on large files while still giving enough context for a meaningful summary. Its output feeds into `build_system_prompt`.",
+      "connections": [
+        {
+          "to": "as_str",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::parse_function_batch_response": {
+      "id": "crates/metroscope-indexer/src/llm.rs::parse_function_batch_response",
+      "name": "parse_function_batch_response",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 276,
+        "line_end": 296
+      },
+      "summary": "Parses pipe-delimited Claude response lines into a function-id-to-summary map.",
+      "explanation": "Parses the `id|summary` lines from a Claude batch response, writing matched entries into the output map and inserting a fallback \"No summary available.\" for any function whose ID wasn't found in the response. The ID whitelist check prevents stray lines in the response from polluting the map with invented function IDs. This same function is reused for both the short summaries and the longer explanations.",
+      "connections": [
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "contains",
+          "kind": "calls"
+        },
+        {
+          "to": "entry",
+          "kind": "calls"
+        },
+        {
+          "to": "insert",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "lines",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "or_insert_with",
+          "kind": "calls"
+        },
+        {
+          "to": "split_once",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "trim",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-server/src/map.rs::build_module_map": {
+      "id": "crates/metroscope-server/src/map.rs::build_module_map",
+      "name": "build_module_map",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/map.rs",
+        "line_start": 262,
+        "line_end": 348
+      },
+      "summary": "Aggregates per-crate station counts and cross-crate call edges into a module map.",
+      "explanation": "Builds the top-level crate-to-crate dependency graph returned by the `/module-map` endpoint. It first aggregates station counts and colors per crate from `index.lines`, then makes a second pass over every station's connections to derive cross-crate call edges, being careful to invert `CalledBy` edges so the `calls_into`/`called_from` sets stay semantically consistent regardless of which direction the connection was stored. The name-only fallback resolution is repeated here for the same reason as in the other functions. The resulting `ModuleMap` is what the Neovim plugin renders as the outermost zoom level before the user drills into a specific crate.",
+      "connections": [
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "cmp",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "crate_display_name",
+          "kind": "calls"
+        },
+        {
+          "to": "crate_id_of",
+          "kind": "calls"
+        },
+        {
+          "to": "entry",
+          "kind": "calls"
+        },
+        {
+          "to": "find",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "get_mut",
+          "kind": "calls"
+        },
+        {
+          "to": "insert",
+          "kind": "calls"
+        },
+        {
+          "to": "into_iter",
+          "kind": "calls"
+        },
+        {
+          "to": "is_empty",
+          "kind": "calls"
+        },
+        {
+          "to": "last",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "or_else",
+          "kind": "calls"
+        },
+        {
+          "to": "or_insert_with",
+          "kind": "calls"
+        },
+        {
+          "to": "sort",
+          "kind": "calls"
+        },
+        {
+          "to": "sort_by",
+          "kind": "calls"
+        },
+        {
+          "to": "split",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        },
+        {
+          "to": "values",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/map.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::call_claude": {
+      "id": "crates/metroscope-indexer/src/llm.rs::call_claude",
+      "name": "call_claude",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 75,
+        "line_end": 80
+      },
+      "summary": "Dispatches a prompt to Claude via API or CLI backend.",
+      "explanation": "Routes a prompt to either the Anthropic HTTP API or the local `claude` CLI depending on which backend was configured at startup. The CLI path returns zero token counts since the CLI doesn't expose usage data, so token tracking is only meaningful in API mode. Both paths ultimately return a `(text, input_tokens, output_tokens)` tuple consumed by `generate_summaries`.",
+      "connections": [
+        {
+          "to": "call_via_api",
+          "kind": "calls"
+        },
+        {
+          "to": "call_via_cli",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-server/src/map.rs::crate_display_name": {
+      "id": "crates/metroscope-server/src/map.rs::crate_display_name",
+      "name": "crate_display_name",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/map.rs",
+        "line_start": 254,
+        "line_end": 260
+      },
+      "summary": "Strips the package prefix from a crate ID, returning the suffix after the first hyphen.",
+      "explanation": "Strips the common project-name prefix from a crate ID to produce a shorter label for display in the module map. For example, `metroscope-indexer` becomes `indexer`. It assumes a single hyphen separates the prefix from the meaningful suffix; if the crate ID has no hyphen it is returned unchanged. Called exclusively inside `build_module_map` when constructing each `ModuleNode`.",
+      "connections": [
+        {
+          "to": "nth",
+          "kind": "calls"
+        },
+        {
+          "to": "splitn",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/map.rs"
+    },
+    "crates/metroscope-indexer/src/parser/rust.rs::parse": {
+      "id": "crates/metroscope-indexer/src/parser/rust.rs::parse",
+      "name": "parse",
+      "kind": "method",
+      "location": {
+        "file": "crates/metroscope-indexer/src/parser/rust.rs",
+        "line_start": 54,
+        "line_end": 74
+      },
+      "summary": "Parses a Rust source file into a `ParsedFile` with extracted functions.",
+      "explanation": "Runs tree-sitter on a source file to get a syntax tree, then delegates to `extract_functions` to walk it. The `disambiguate_name` call here is what sets the display name separate from the canonical `file_id`. If tree-sitter returns `None` (which can happen on severe encoding issues), the error surfaces immediately rather than producing a partial result.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "disambiguate_name",
+          "kind": "calls"
+        },
+        {
+          "to": "extract_functions",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "parse",
+          "kind": "calls"
+        },
+        {
+          "to": "root_node",
+          "kind": "calls"
+        },
+        {
+          "to": "set_language",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/parser/rust.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::call_via_cli": {
+      "id": "crates/metroscope-indexer/src/llm.rs::call_via_cli",
+      "name": "call_via_cli",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 114,
+        "line_end": 144
+      },
+      "summary": "Sends a prompt to the `claude` CLI subprocess and returns its stdout.",
+      "explanation": "Spawns the `claude` CLI as a subprocess, pipes the prompt to its stdin, and reads the response from stdout. This is a synchronous fallback for environments where an API key isn't available but the Claude desktop app is installed. It inherits stderr so CLI errors surface directly in the indexer's terminal output.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "arg",
+          "kind": "calls"
+        },
+        {
+          "to": "as_bytes",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "from_utf8_lossy",
+          "kind": "calls"
+        },
+        {
+          "to": "inherit",
+          "kind": "calls"
+        },
+        {
+          "to": "into_owned",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "piped",
+          "kind": "calls"
+        },
+        {
+          "to": "spawn",
+          "kind": "calls"
+        },
+        {
+          "to": "stderr",
+          "kind": "calls"
+        },
+        {
+          "to": "stdin",
+          "kind": "calls"
+        },
+        {
+          "to": "stdout",
+          "kind": "calls"
+        },
+        {
+          "to": "success",
+          "kind": "calls"
+        },
+        {
+          "to": "take",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap",
+          "kind": "calls"
+        },
+        {
+          "to": "wait_with_output",
+          "kind": "calls"
+        },
+        {
+          "to": "write_all",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::parse_quests": {
+      "id": "crates/metroscope-indexer/src/llm.rs::parse_quests",
+      "name": "parse_quests",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 384,
+        "line_end": 403
+      },
+      "summary": "Parses pipe-delimited quest lines into a list of `Quest` structs.",
+      "explanation": "Splits each response line on `|` into exactly four fields and maps the difficulty string to the `QuestDifficulty` enum, defaulting unrecognized values to `Medium`. Lines that don't produce four fields are silently skipped, so malformed LLM output degrades gracefully rather than erroring. The resulting `Vec<Quest>` is stored in the index and displayed in the Neovim plugin's UI.",
+      "connections": [
+        {
+          "to": "as_str",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "lines",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "splitn",
+          "kind": "calls"
+        },
+        {
+          "to": "to_lowercase",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "trim",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-indexer/src/main.rs::is_ignored": {
+      "id": "crates/metroscope-indexer/src/main.rs::is_ignored",
+      "name": "is_ignored",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/main.rs",
+        "line_start": 255,
+        "line_end": 260
+      },
+      "summary": "Returns true if path contains target, .git, or .metroscope components.",
+      "explanation": "Filters out paths that should never be indexed — `target/`, `.git/`, and `.metroscope/` — by checking each path component. It's called during the `WalkDir` traversal in `index_project` to avoid indexing build artifacts, version control internals, or the index file itself.",
+      "connections": [
+        {
+          "to": "any",
+          "kind": "calls"
+        },
+        {
+          "to": "as_os_str",
+          "kind": "calls"
+        },
+        {
+          "to": "components",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string_lossy",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/main.rs"
+    },
+    "crates/metroscope-indexer/src/parser/rust.rs::extract_calls": {
+      "id": "crates/metroscope-indexer/src/parser/rust.rs::extract_calls",
+      "name": "extract_calls",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/parser/rust.rs",
+        "line_start": 156,
+        "line_end": 186
+      },
+      "summary": "Extracts deduplicated callee names from all call expressions within a function.",
+      "explanation": "Runs a second tree-sitter query inside a function node to collect all called identifiers, covering plain calls, method chains, and path-qualified calls like `Foo::bar`. The results are sorted and deduplicated so call lists are stable across re-indexes. These raw name strings are later resolved to full station IDs during index assembly to build the `calls`/`called_by` graph.",
+      "connections": [
+        {
+          "to": "as_bytes",
+          "kind": "calls"
+        },
+        {
+          "to": "capture_index_for_name",
+          "kind": "calls"
+        },
+        {
+          "to": "dedup",
+          "kind": "calls"
+        },
+        {
+          "to": "end_byte",
+          "kind": "calls"
+        },
+        {
+          "to": "filter",
+          "kind": "calls"
+        },
+        {
+          "to": "into",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "matches",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "next",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "sort",
+          "kind": "calls"
+        },
+        {
+          "to": "start_byte",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/parser/rust.rs"
+    },
+    "crates/metroscope-server/src/export.rs::render_svg": {
+      "id": "crates/metroscope-server/src/export.rs::render_svg",
+      "name": "render_svg",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/export.rs",
+        "line_start": 146,
+        "line_end": 514
+      },
+      "summary": "Renders the full index as an SVG diagram with crate panels, station boxes, and call arrows.",
+      "explanation": "Generates the full SVG diagram of the entire index: groups files by crate, computes station box heights from word-wrapped explanations, performs a top-down layout pass, then emits SVG elements for crate panels, file labels, station boxes, call-graph arrows (with different colors for cross-crate edges), and a legend. It's the only public function in `export.rs` and is called by `handle_export_svg` in response to `GET /export/svg`.",
+      "connections": [
+        {
+          "to": "abs",
+          "kind": "calls"
+        },
+        {
+          "to": "and_then",
+          "kind": "calls"
+        },
+        {
+          "to": "as_str",
+          "kind": "calls"
+        },
+        {
+          "to": "chars",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "cloned",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "crate_id_of",
+          "kind": "calls"
+        },
+        {
+          "to": "entry",
+          "kind": "calls"
+        },
+        {
+          "to": "enumerate",
+          "kind": "calls"
+        },
+        {
+          "to": "first",
+          "kind": "calls"
+        },
+        {
+          "to": "fold",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "insert",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "join",
+          "kind": "calls"
+        },
+        {
+          "to": "keys",
+          "kind": "calls"
+        },
+        {
+          "to": "kind_badge",
+          "kind": "calls"
+        },
+        {
+          "to": "last",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "line_el",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "max",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "or_default",
+          "kind": "calls"
+        },
+        {
+          "to": "push",
+          "kind": "calls"
+        },
+        {
+          "to": "rect",
+          "kind": "calls"
+        },
+        {
+          "to": "sort",
+          "kind": "calls"
+        },
+        {
+          "to": "split",
+          "kind": "calls"
+        },
+        {
+          "to": "take",
+          "kind": "calls"
+        },
+        {
+          "to": "text",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "to_uppercase",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or",
+          "kind": "calls"
+        },
+        {
+          "to": "values",
+          "kind": "calls"
+        },
+        {
+          "to": "word_wrap",
+          "kind": "calls"
+        },
+        {
+          "to": "xml",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/export.rs"
+    },
+    "crates/metroscope-indexer/src/llm.rs::call_via_api": {
+      "id": "crates/metroscope-indexer/src/llm.rs::call_via_api",
+      "name": "call_via_api",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-indexer/src/llm.rs",
+        "line_start": 82,
+        "line_end": 111
+      },
+      "summary": "Sends a prompt to the Claude HTTP API and returns the response text and token counts.",
+      "explanation": "Sends a single prompt to the Claude API using `reqwest`, deserializes the response, and returns the text alongside token usage counts. It constructs a minimal one-turn conversation with a hardcoded model and a 4096-token output cap; error responses are surfaced with the raw status and body to aid debugging. The returned token counts are accumulated by `generate_summaries` to report total cost at the end of indexing.",
+      "connections": [
+        {
+          "to": "Ok",
+          "kind": "calls"
+        },
+        {
+          "to": "context",
+          "kind": "calls"
+        },
+        {
+          "to": "header",
+          "kind": "calls"
+        },
+        {
+          "to": "into_iter",
+          "kind": "calls"
+        },
+        {
+          "to": "is_success",
+          "kind": "calls"
+        },
+        {
+          "to": "join",
+          "kind": "calls"
+        },
+        {
+          "to": "json",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "new",
+          "kind": "calls"
+        },
+        {
+          "to": "post",
+          "kind": "calls"
+        },
+        {
+          "to": "send",
+          "kind": "calls"
+        },
+        {
+          "to": "status",
+          "kind": "calls"
+        },
+        {
+          "to": "text",
+          "kind": "calls"
+        },
+        {
+          "to": "to_string",
+          "kind": "calls"
+        },
+        {
+          "to": "unwrap_or_default",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-indexer/src/llm.rs"
+    },
+    "crates/metroscope-server/src/map.rs::build_map_response": {
+      "id": "crates/metroscope-server/src/map.rs::build_map_response",
+      "name": "build_map_response",
+      "kind": "function",
+      "location": {
+        "file": "crates/metroscope-server/src/map.rs",
+        "line_start": 40,
+        "line_end": 100
+      },
+      "summary": "Builds a map response with lines and stations windowed around the focused station.",
+      "explanation": "Builds the map view response by filtering lines to the requested crate, windowing each line's station list to `CONTEXT_RADIUS` stations around the focused one, and annotating each station with focus state and whether it has cross-line connections. The windowing means the Neovim map never shows more stations than fit on screen, even for large files. The `crate_filter` parameter is the key mechanism by which the plugin switches between per-crate views.",
+      "connections": [
+        {
+          "to": "Some",
+          "kind": "calls"
+        },
+        {
+          "to": "and_then",
+          "kind": "calls"
+        },
+        {
+          "to": "as_str",
+          "kind": "calls"
+        },
+        {
+          "to": "clone",
+          "kind": "calls"
+        },
+        {
+          "to": "cmp",
+          "kind": "calls"
+        },
+        {
+          "to": "collect",
+          "kind": "calls"
+        },
+        {
+          "to": "crate_id_of",
+          "kind": "calls"
+        },
+        {
+          "to": "filter",
+          "kind": "calls"
+        },
+        {
+          "to": "filter_map",
+          "kind": "calls"
+        },
+        {
+          "to": "get",
+          "kind": "calls"
+        },
+        {
+          "to": "is_empty",
+          "kind": "calls"
+        },
+        {
+          "to": "iter",
+          "kind": "calls"
+        },
+        {
+          "to": "len",
+          "kind": "calls"
+        },
+        {
+          "to": "map",
+          "kind": "calls"
+        },
+        {
+          "to": "map_or",
+          "kind": "calls"
+        },
+        {
+          "to": "min",
+          "kind": "calls"
+        },
+        {
+          "to": "position",
+          "kind": "calls"
+        },
+        {
+          "to": "saturating_sub",
+          "kind": "calls"
+        },
+        {
+          "to": "sort_by",
+          "kind": "calls"
+        },
+        {
+          "to": "station_has_cross_line",
+          "kind": "calls"
+        },
+        {
+          "to": "values",
+          "kind": "calls"
+        }
+      ],
+      "line_id": "crates/metroscope-server/src/map.rs"
+    }
+  },
+  "lines": {
+    "crates/metroscope-server/src/main.rs": {
+      "id": "crates/metroscope-server/src/main.rs",
+      "name": "server/main",
+      "color": "#E8C03A",
+      "summary": "Loads the index and serves six HTTP endpoints for map, station, connections, module-map, SVG export, and quests queries.",
+      "stations": [
+        "crates/metroscope-server/src/main.rs::main",
+        "crates/metroscope-server/src/main.rs::handle_map",
+        "crates/metroscope-server/src/main.rs::handle_station",
+        "crates/metroscope-server/src/main.rs::handle_connections",
+        "crates/metroscope-server/src/main.rs::handle_module_map",
+        "crates/metroscope-server/src/main.rs::handle_export_svg",
+        "crates/metroscope-server/src/main.rs::handle_quests"
+      ]
+    },
+    "crates/metroscope-indexer/src/parser/rust.rs": {
+      "id": "crates/metroscope-indexer/src/parser/rust.rs",
+      "name": "rust",
+      "color": "#3AE8D8",
+      "summary": "Parses Rust source files with tree-sitter to extract functions, methods, and call relationships.",
+      "stations": [
+        "crates/metroscope-indexer/src/parser/rust.rs::disambiguate_name",
+        "crates/metroscope-indexer/src/parser/rust.rs::new",
+        "crates/metroscope-indexer/src/parser/rust.rs::parse",
+        "crates/metroscope-indexer/src/parser/rust.rs::extract_functions",
+        "crates/metroscope-indexer/src/parser/rust.rs::is_inside_impl",
+        "crates/metroscope-indexer/src/parser/rust.rs::extract_calls"
+      ]
+    },
+    "crates/metroscope-server/src/export.rs": {
+      "id": "crates/metroscope-server/src/export.rs",
+      "name": "server/export",
+      "color": "#E84B3A",
+      "summary": "Renders the metroscope index as a static SVG diagram with crate/file/station layout and connection arrows.",
+      "stations": [
+        "crates/metroscope-server/src/export.rs::word_wrap",
+        "crates/metroscope-server/src/export.rs::xml",
+        "crates/metroscope-server/src/export.rs::crate_id_of",
+        "crates/metroscope-server/src/export.rs::kind_badge",
+        "crates/metroscope-server/src/export.rs::rect",
+        "crates/metroscope-server/src/export.rs::text",
+        "crates/metroscope-server/src/export.rs::line_el",
+        "crates/metroscope-server/src/export.rs::render_svg"
+      ]
+    },
+    "crates/metroscope-indexer/src/main.rs": {
+      "id": "crates/metroscope-indexer/src/main.rs",
+      "name": "indexer/main",
+      "color": "#E83A9B",
+      "summary": "Parses Rust source files, calls Claude API for summaries, and writes a `.metroscope/index.json` index.",
+      "stations": [
+        "crates/metroscope-indexer/src/main.rs::main",
+        "crates/metroscope-indexer/src/main.rs::index_project",
+        "crates/metroscope-indexer/src/main.rs::is_ignored"
+      ]
+    },
+    "crates/metroscope-indexer/src/llm.rs": {
+      "id": "crates/metroscope-indexer/src/llm.rs",
+      "name": "indexer/llm",
+      "color": "#E8753A",
+      "summary": "Calls Claude API (or CLI) to generate per-function summaries, explanations, file summaries, system summaries, and quests for indexed code.",
+      "stations": [
+        "crates/metroscope-indexer/src/llm.rs::call_claude",
+        "crates/metroscope-indexer/src/llm.rs::call_via_api",
+        "crates/metroscope-indexer/src/llm.rs::call_via_cli",
+        "crates/metroscope-indexer/src/llm.rs::generate_summaries",
+        "crates/metroscope-indexer/src/llm.rs::build_function_batch_prompt",
+        "crates/metroscope-indexer/src/llm.rs::parse_function_batch_response",
+        "crates/metroscope-indexer/src/llm.rs::build_explanation_batch_prompt",
+        "crates/metroscope-indexer/src/llm.rs::build_file_prompt",
+        "crates/metroscope-indexer/src/llm.rs::build_system_prompt",
+        "crates/metroscope-indexer/src/llm.rs::build_quests_prompt",
+        "crates/metroscope-indexer/src/llm.rs::parse_quests"
+      ]
+    },
+    "crates/metroscope-types/src/lib.rs": {
+      "id": "crates/metroscope-types/src/lib.rs",
+      "name": "types/lib",
+      "color": "#E83A9B",
+      "summary": "Defines the shared data model (`Station`, `Line`, `Index`, `Quest`) serialized to `.metroscope/index.json`.",
+      "stations": [
+        "crates/metroscope-types/src/lib.rs::station_at"
+      ]
+    },
+    "crates/metroscope-server/src/map.rs": {
+      "id": "crates/metroscope-server/src/map.rs",
+      "name": "server/map",
+      "color": "#3AE87A",
+      "summary": "Builds map response views and cross-file connection summaries from the indexed station/line data.",
+      "stations": [
+        "crates/metroscope-server/src/map.rs::build_map_response",
+        "crates/metroscope-server/src/map.rs::station_has_cross_line",
+        "crates/metroscope-server/src/map.rs::build_file_connections",
+        "crates/metroscope-server/src/map.rs::crate_id_of",
+        "crates/metroscope-server/src/map.rs::crate_display_name",
+        "crates/metroscope-server/src/map.rs::build_module_map"
+      ]
+    },
+    "crates/metroscope-indexer/src/color.rs": {
+      "id": "crates/metroscope-indexer/src/color.rs",
+      "name": "indexer/color",
+      "color": "#E83A9B",
+      "summary": "Deterministically assigns a metro-style hex color to a file path using FNV hash and a fixed palette.",
+      "stations": [
+        "crates/metroscope-indexer/src/color.rs::for_file"
+      ]
+    },
+    "crates/metroscope-indexer/src/parser/mod.rs": {
+      "id": "crates/metroscope-indexer/src/parser/mod.rs",
+      "name": "mod",
+      "color": "#3AE8D8",
+      "summary": "",
+      "stations": []
+    },
+    "crates/metroscope-indexer/src/serena.rs": {
+      "id": "crates/metroscope-indexer/src/serena.rs",
+      "name": "indexer/serena",
+      "color": "#E84B3A",
+      "summary": "Spawns a Serena MCP server via `uvx` and queries it to enrich the index with LSP-accurate `CalledBy` call graph connections.",
+      "stations": [
+        "crates/metroscope-indexer/src/serena.rs::enrich",
+        "crates/metroscope-indexer/src/serena.rs::parse_referencing_symbols"
+      ]
+    }
+  },
+  "entry_points": [
+    "crates/metroscope-indexer/src/main.rs::main",
+    "crates/metroscope-server/src/main.rs::main"
+  ],
+  "quests": [
+    {
+      "title": "Add incremental re-indexing with file-level caching",
+      "component": "metroscope-indexer",
+      "why": "Every re-index re-calls the LLM for every function, even unchanged ones. Caching summaries by file hash would cut API cost and latency by 80-90% for typical edit cycles.",
+      "difficulty": "medium"
+    },
+    {
+      "title": "Watch index file and hot-reload without restart",
+      "component": "metroscope-server",
+      "why": "The server loads index.json once at startup and requires a manual restart after re-indexing. A file watcher (notify crate) would make the editor integration seamless.",
+      "difficulty": "easy"
+    },
+    {
+      "title": "Replace ad-hoc println logging with structured tracing",
+      "component": "system",
+      "why": "All observability is via println!/eprintln!, making it impossible to filter, sample, or ship logs in production. The tracing crate is already common in the axum ecosystem.",
+      "difficulty": "medium"
+    },
+    {
+      "title": "Bind to 127.0.0.1 only with configurable auth token",
+      "component": "metroscope-server",
+      "why": "The server uses CorsLayer::permissive() and binds to localhost with no authentication, so any local process or browser tab can read the full index. A static bearer token would close this.",
+      "difficulty": "easy"
+    },
+    {
+      "title": "Abstract language parser behind a trait",
+      "component": "metroscope-indexer",
+      "why": "The indexer is hardcoded to Rust/tree-sitter with no language dispatch layer. Adding JS/TS (stated intent in team memory) will require threading a trait boundary through the entire pipeline now rather than later.",
+      "difficulty": "hard"
+    },
+    {
+      "title": "Add retry and partial-failure recovery for LLM batch calls",
+      "component": "metroscope-indexer",
+      "why": "A single API error aborts the entire indexing run, discarding all prior LLM work. Retrying failed batches and writing a partial index on interrupt would make large-project indexing resilient.",
+      "difficulty": "medium"
+    }
+  ]
+}

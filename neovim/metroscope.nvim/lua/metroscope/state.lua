@@ -30,6 +30,7 @@ M.state = {
   sl_prev_buf  = nil,
   sl_prev_win  = nil,
   dim_win      = nil,
+  quest_counts = {},  -- { ["crate-name"] = N } — populated on map open
 }
 
 -- Layout constants (used by render, highlights, info)

@@ -82,6 +82,30 @@ async fn index_project(
 
     println!("Indexing {}", project_root.display());
 
+    // Load existing index as cache for incremental re-indexing
+    let cache: HashMap<String, (String, String, String)> = {
+        let index_path = project_root.join(".metroscope/index.json");
+        match std::fs::read_to_string(&index_path) {
+            Ok(json) => match serde_json::from_str::<Index>(&json) {
+                Ok(old_index) => {
+                    let n = old_index.stations.len();
+                    println!("  Loaded existing index ({n} stations) for incremental re-index");
+                    old_index.stations.into_values()
+                        .map(|s| (s.id.clone(), (s.summary, s.explanation, s.body_hash)))
+                        .collect()
+                }
+                Err(_) => {
+                    println!("  No valid existing index — full index will be generated");
+                    HashMap::new()
+                }
+            },
+            Err(_) => {
+                println!("  No existing index — full index will be generated");
+                HashMap::new()
+            }
+        }
+    };
+
     // Collect all Rust files
     let rust_files: Vec<PathBuf> = WalkDir::new(&project_root)
         .into_iter()
@@ -116,9 +140,9 @@ async fn index_project(
     let total_fns: usize = parsed_files.iter().map(|f| f.functions.len()).sum();
     println!("Extracted {} functions across {} files", total_fns, parsed_files.len());
 
-    // Generate LLM summaries (batched)
+    // Generate LLM summaries (batched, incremental)
     println!("Generating summaries with Claude...");
-    let summaries = llm::generate_summaries(&parsed_files, backend, prompts).await?;
+    let summaries = llm::generate_summaries(&parsed_files, backend, prompts, &cache).await?;
 
     // Build initial stations (outgoing calls from tree-sitter)
     let mut stations: HashMap<String, Station> = HashMap::new();
@@ -177,6 +201,7 @@ async fn index_project(
                 explanation,
                 connections,
                 line_id: pf.file_id.clone(),
+                body_hash: func.body_hash(),
             });
         }
     }
@@ -192,8 +217,6 @@ async fn index_project(
                 for (station_id, callers) in serena_index.callers {
                     if let Some(station) = stations.get_mut(&station_id) {
                         for caller in callers {
-                            // Resolve caller name_path to a station id if possible
-                            // name_path is like "/fn_name" — match by name within the caller's file
                             let caller_name = caller.name_path.trim_start_matches('/');
                             let caller_id = format!("{}::{}", caller.relative_path, caller_name);
                             station.connections.push(Connection {
@@ -231,13 +254,12 @@ async fn index_project(
     let index_path = index_dir.join("index.json");
     std::fs::write(&index_path, serde_json::to_string_pretty(&index)?)?;
 
-        println!("Index written to {}", index_path.display());
+    println!("Index written to {}", index_path.display());
     println!("  {} stations, {} lines", index.stations.len(), index.lines.len());
 
     // Token usage report (only meaningful when using the API backend)
     let total = summaries.tokens_in + summaries.tokens_out;
     if total > 0 {
-        // Haiku pricing: $0.80 / MTok input, $4.00 / MTok output (as of 2025)
         let cost_usd = (summaries.tokens_in as f64 / 1_000_000.0) * 0.80
             + (summaries.tokens_out as f64 / 1_000_000.0) * 4.00;
         println!();

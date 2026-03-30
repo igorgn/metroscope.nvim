@@ -27,6 +27,19 @@ local function fetch(url)
   return ok and decoded or nil
 end
 
+-- ─── Quest counts ─────────────────────────────────────────────────────────────
+
+local function fetch_quest_counts()
+  local quests = fetch(config.server .. "/quests")
+  if not quests or type(quests) ~= "table" then return end
+  local counts = {}
+  for _, q in ipairs(quests) do
+    local comp = q.component or "system"
+    counts[comp] = (counts[comp] or 0) + 1
+  end
+  state.quest_counts = counts
+end
+
 -- ─── Redraw ───────────────────────────────────────────────────────────────────
 
 local function redraw()
@@ -192,6 +205,8 @@ function M.open()
 
   state.project_root = data.project_root or vim.fn.getcwd()
 
+  fetch_quest_counts()
+
   hl.setup()
   state.dim_win        = win_mod.open_dim_win()
   state.buf, state.win = win_mod.open_window()
@@ -301,6 +316,8 @@ function M.open_stations()
   state.line_idx    = target_line_idx
   state.station_idx = 1
 
+  fetch_quest_counts()
+
   -- Open map window (hidden immediately — stations view takes over)
   hl.setup()
   state.dim_win        = win_mod.open_dim_win()
@@ -340,20 +357,9 @@ function M.index(project_root, api_key)
 end
 
 function M.open_quests()
-  local handle = io.popen('curl -s --max-time 4 "' .. config.server .. '/quests"')
-  if not handle then
-    vim.notify("Metroscope: could not reach server", vim.log.levels.ERROR)
-    return
-  end
-  local result = handle:read("*a")
-  handle:close()
-  if not result or result == "" then
-    vim.notify("Metroscope: no response from server", vim.log.levels.ERROR)
-    return
-  end
-  local ok, quests = pcall(vim.json.decode, result)
-  if not ok or type(quests) ~= "table" then
-    vim.notify("Metroscope: failed to parse quests", vim.log.levels.ERROR)
+  local quests = fetch(config.server .. "/quests")
+  if not quests or type(quests) ~= "table" then
+    vim.notify("Metroscope: could not fetch quests", vim.log.levels.ERROR)
     return
   end
   if #quests == 0 then
@@ -372,36 +378,57 @@ function M.open_quests()
   local W = 68
   local util = require("metroscope.util")
 
-  -- Build rows + highlight metadata
-  local rows = {}
-  local hl_marks = {} -- { line (0-based), hl_group }
+  -- quest_lines[i] = 1-based row of the quest header (badge line), for cursor tracking
+  local quest_lines = {}
 
-  local function push(text, hl)
-    table.insert(rows, text)
-    if hl then hl_marks[#rows] = hl end
+  local function build_rows(cursor_idx)
+    local rows = {}
+    local hl_marks = {}
+    local function push(text, hl_group)
+      table.insert(rows, text)
+      if hl_group then hl_marks[#rows] = hl_group end
+    end
+
+    push("  Architectural Quests", "MetroscopeQuestTitle")
+    push(string.rep("─", W - 2))
+    push("")
+
+    for i, q in ipairs(quests) do
+      local diff_hl = q.difficulty == "easy" and "MetroscopeQuestEasy"
+                 or  q.difficulty == "hard"  and "MetroscopeQuestHard"
+                 or  "MetroscopeQuestMedium"
+      local badge = q.difficulty == "easy" and "[Easy]" or q.difficulty == "hard" and "[Hard]" or "[Medium]"
+      local arrow = (i == cursor_idx) and "▶ " or "  "
+      quest_lines[i] = #rows + 1  -- row this quest starts on (1-based)
+      push(arrow .. badge .. "  " .. (q.component or "system"), diff_hl)
+      push("  " .. (q.title or ""), "MetroscopeQuestTitle")
+      for _, wl in ipairs(util.word_wrap(q.why or "", W - 4)) do
+        push("  " .. wl, "MetroscopeQuestWhy")
+      end
+      if i < #quests then
+        push("")
+        push(string.rep("╌", W - 2), "MetroscopeQuestComp")
+        push("")
+      end
+    end
+    push("")
+    return rows, hl_marks
   end
 
-  push("  Architectural Quests", "MetroscopeQuestTitle")
-  push(string.rep("─", W - 2))
-  push("")
+  local cursor_idx = 1
+  local ns_q = vim.api.nvim_create_namespace("metroscope_quests")
 
-  for i, q in ipairs(quests) do
-    local diff_hl = q.difficulty == "easy" and "MetroscopeQuestEasy"
-               or  q.difficulty == "hard"  and "MetroscopeQuestHard"
-               or  "MetroscopeQuestMedium"
-    local badge = q.difficulty == "easy" and "[Easy]" or q.difficulty == "hard" and "[Hard]" or "[Medium]"
-    push("  " .. badge .. "  " .. (q.component or "system"), diff_hl)
-    push("  " .. (q.title or ""), "MetroscopeQuestTitle")
-    for _, wl in ipairs(util.word_wrap(q.why or "", W - 4)) do
-      push("  " .. wl, "MetroscopeQuestWhy")
-    end
-    if i < #quests then
-      push("")
-      push(string.rep("╌", W - 2), "MetroscopeQuestComp")
-      push("")
+  local function render_into(buf, rows, hl_marks)
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
+    vim.bo[buf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(buf, ns_q, 0, -1)
+    for lnum, hl_group in pairs(hl_marks) do
+      vim.api.nvim_buf_add_highlight(buf, ns_q, hl_group, lnum - 1, 0, -1)
     end
   end
-  push("")
+
+  local rows, hl_marks = build_rows(cursor_idx)
 
   local H = math.min(#rows + 2, math.floor(vim.o.lines * 0.75))
   local erow = math.floor((vim.o.lines - H) / 2)
@@ -410,13 +437,7 @@ function M.open_quests()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype   = "nofile"
   vim.bo[buf].bufhidden = "wipe"
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
-  vim.bo[buf].modifiable = false
-
-  local ns = vim.api.nvim_create_namespace("metroscope_quests")
-  for lnum, hl in pairs(hl_marks) do
-    vim.api.nvim_buf_add_highlight(buf, ns, hl, lnum - 1, 0, -1)
-  end
+  render_into(buf, rows, hl_marks)
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative   = "editor",
@@ -428,7 +449,7 @@ function M.open_quests()
     border     = "rounded",
     title      = "  ⚔ Quests  ",
     title_pos  = "center",
-    footer     = "  j/k:scroll  q/<Esc>:close  ",
+    footer     = "  j/k:move  x:execute  q/<Esc>:close  ",
     footer_pos = "center",
     zindex     = 150,
   })
@@ -436,6 +457,36 @@ function M.open_quests()
 
   local opts = { buffer = buf, nowait = true, silent = true }
   local function close() vim.api.nvim_win_close(win, true) end
+
+  local function move(delta)
+    local new_idx = math.max(1, math.min(#quests, cursor_idx + delta))
+    if new_idx == cursor_idx then return end
+    cursor_idx = new_idx
+    local r, h = build_rows(cursor_idx)
+    render_into(buf, r, h)
+    local target_row = quest_lines[cursor_idx] or 1
+    vim.api.nvim_win_set_cursor(win, { target_row, 0 })
+  end
+
+  local function execute_quest()
+    local q = quests[cursor_idx]
+    if not q then return end
+    local prompt = string.format(
+      "Implement this architectural improvement for the %s component:\n\n%s\n\n%s",
+      q.component or "system", q.title or "", q.why or ""
+    )
+    -- Escape single quotes for shell
+    prompt = prompt:gsub("'", "'\\''")
+    local flag = (q.difficulty == "hard") and " --plan" or ""
+    local cmd = "claude" .. flag .. " '" .. prompt .. "'"
+    close()
+    vim.cmd("botright 20split | terminal " .. cmd)
+    vim.notify("Metroscope: launching quest agent — " .. (q.title or ""), vim.log.levels.INFO)
+  end
+
+  vim.keymap.set("n", "j",     function() move(1)  end, opts)
+  vim.keymap.set("n", "k",     function() move(-1) end, opts)
+  vim.keymap.set("n", "x",     execute_quest, opts)
   vim.keymap.set("n", "q",     close, opts)
   vim.keymap.set("n", "<Esc>", close, opts)
 end

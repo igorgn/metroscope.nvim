@@ -149,8 +149,11 @@ pub async fn generate_summaries(
     files: &[ParsedFile],
     backend: &LlmBackend,
     prompts: &PromptOverrides,
+    // id -> (summary, explanation, body_hash) from previous index
+    cache: &HashMap<String, (String, String, String)>,
 ) -> Result<Summaries> {
     let mut function_summaries: HashMap<String, String> = HashMap::new();
+    let mut function_explanations: HashMap<String, String> = HashMap::new();
     let mut file_summaries: HashMap<String, String> = HashMap::new();
     let mut tokens_in: u32 = 0;
     let mut tokens_out: u32 = 0;
@@ -164,36 +167,59 @@ pub async fn generate_summaries(
         }};
     }
 
-    // --- Function summaries (batched) ---
+    // --- Seed from cache for unchanged functions ---
     let all_functions: Vec<_> = files.iter().flat_map(|f| f.functions.iter()).collect();
-
-    let batches: Vec<_> = all_functions.chunks(BATCH_SIZE).collect();
-    println!(
-        "  Summarizing {} functions in {} batches...",
-        all_functions.len(),
-        batches.len()
-    );
-
-    for (i, batch) in batches.iter().enumerate() {
-        println!("  Batch {}/{}", i + 1, batches.len());
-        let prompt = build_function_batch_prompt(batch, prompts.function_prompt.as_deref());
-        let response = call!(backend, &prompt);
-        parse_function_batch_response(&response, batch, &mut function_summaries);
+    let mut skipped = 0usize;
+    for func in &all_functions {
+        if let Some((cached_summary, cached_explanation, cached_hash)) = cache.get(&func.id) {
+            if *cached_hash == func.body_hash() {
+                function_summaries.insert(func.id.clone(), cached_summary.clone());
+                function_explanations.insert(func.id.clone(), cached_explanation.clone());
+                skipped += 1;
+            }
+        }
+    }
+    if skipped > 0 {
+        println!("  Skipping {skipped} unchanged functions (cached)");
     }
 
-    // --- Function explanations (batched, longer form) ---
-    let mut function_explanations: HashMap<String, String> = HashMap::new();
-    let expl_batches: Vec<_> = all_functions.chunks(BATCH_SIZE).collect();
-    println!(
-        "  Generating explanations for {} functions in {} batches...",
-        all_functions.len(),
-        expl_batches.len()
-    );
-    for (i, batch) in expl_batches.iter().enumerate() {
-        println!("  Explanation batch {}/{}", i + 1, expl_batches.len());
-        let prompt = build_explanation_batch_prompt(batch);
-        let response = call!(backend, &prompt);
-        parse_function_batch_response(&response, batch, &mut function_explanations);
+    // Only process new/changed functions
+    let new_functions: Vec<_> = all_functions
+        .iter()
+        .filter(|f| !function_summaries.contains_key(&f.id))
+        .cloned()
+        .collect();
+
+    if !new_functions.is_empty() {
+        // --- Function summaries (batched) ---
+        let batches: Vec<_> = new_functions.chunks(BATCH_SIZE).collect();
+        println!(
+            "  Summarizing {} new/changed functions in {} batches...",
+            new_functions.len(),
+            batches.len()
+        );
+        for (i, batch) in batches.iter().enumerate() {
+            println!("  Batch {}/{}", i + 1, batches.len());
+            let prompt = build_function_batch_prompt(batch, prompts.function_prompt.as_deref());
+            let response = call!(backend, &prompt);
+            parse_function_batch_response(&response, batch, &mut function_summaries);
+        }
+
+        // --- Function explanations (batched) ---
+        let expl_batches: Vec<_> = new_functions.chunks(BATCH_SIZE).collect();
+        println!(
+            "  Generating explanations for {} functions in {} batches...",
+            new_functions.len(),
+            expl_batches.len()
+        );
+        for (i, batch) in expl_batches.iter().enumerate() {
+            println!("  Explanation batch {}/{}", i + 1, expl_batches.len());
+            let prompt = build_explanation_batch_prompt(batch);
+            let response = call!(backend, &prompt);
+            parse_function_batch_response(&response, batch, &mut function_explanations);
+        }
+    } else {
+        println!("  All functions unchanged — skipping LLM summary passes");
     }
 
     // --- File summaries ---
@@ -215,7 +241,6 @@ pub async fn generate_summaries(
 
     // --- Architectural quests ---
     println!("  Generating architectural quests...");
-    // Build per-crate summaries by grouping file summaries under their crate prefix
     let mut crate_summaries: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     for (file_id, summary) in &file_summaries {
         let crate_name = {
@@ -232,7 +257,6 @@ pub async fn generate_summaries(
         .into_iter()
         .map(|(name, summaries)| (name, summaries.join("; ")))
         .collect();
-
     let quests_prompt = build_quests_prompt(&system_summary, &crate_list);
     let quests_response = call!(backend, &quests_prompt);
     let quests = parse_quests(&quests_response);

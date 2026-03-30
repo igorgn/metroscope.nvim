@@ -16,6 +16,18 @@ pub struct ParsedFunction {
     pub calls: Vec<String>,
 }
 
+impl ParsedFunction {
+    /// FNV-1a hash of the function body, hex-encoded.
+    pub fn body_hash(&self) -> String {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in self.body.bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        format!("{:016x}", hash)
+    }
+}
+
 /// A parsed file containing its functions.
 #[derive(Debug, Clone)]
 pub struct ParsedFile {

@@ -12,10 +12,8 @@ const PALETTE: &[&str] = &[
 ];
 
 pub fn for_file(file_id: &str) -> String {
-    let hash: u64 = file_id
-        .bytes()
-        .fold(0xcbf29ce484222325u64, |acc, b| {
-            acc.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
-        });
+    let hash: u64 = file_id.bytes().fold(0xcbf29ce484222325u64, |acc, b| {
+        acc.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
+    });
     PALETTE[(hash as usize) % PALETTE.len()].to_string()
 }

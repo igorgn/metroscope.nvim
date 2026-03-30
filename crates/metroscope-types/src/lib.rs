@@ -67,6 +67,9 @@ pub struct Station {
     pub connections: Vec<Connection>,
     /// Which Line (file) this station belongs to
     pub line_id: String,
+    /// FNV-1a hash of the function body — used for incremental re-indexing
+    #[serde(default)]
+    pub body_hash: String,
 }
 
 /// A Line represents a file/module in the codebase.

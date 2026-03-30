@@ -44,13 +44,30 @@ function M.box(name, focused, cross)
   end
 end
 
+local function crate_id_of(file_id)
+  -- "crates/metroscope-indexer/src/foo.rs" -> "metroscope-indexer"
+  local crate = file_id:match("^crates/([^/]+)/")
+  return crate or "root"
+end
+
 function M.render_map(data)
   if not data or not data.lines then return {} end
 
   local out = {}
 
   for li, line in ipairs(data.lines) do
-    local label = util.pad_right("[" .. line.name .. "]", LABEL_W)
+    local crate_id = crate_id_of(line.id or "")
+    local count = state.quest_counts and state.quest_counts[crate_id]
+    local badge = (count and count > 0) and ("⚔" .. count) or nil
+    local base_name = "[" .. line.name .. "]"
+    local label
+    if badge then
+      -- Pad so badge fits within LABEL_W
+      local space = LABEL_W - vim.fn.strdisplaywidth(base_name) - vim.fn.strdisplaywidth(badge) - 1
+      label = base_name .. string.rep(" ", math.max(1, space)) .. badge
+    else
+      label = util.pad_right(base_name, LABEL_W)
+    end
 
     if #line.stations == 0 then
       table.insert(out, label .. " " .. util.dashes(8))

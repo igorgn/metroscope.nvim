@@ -17,6 +17,7 @@ function M.setup()
 	vim.api.nvim_set_hl(0, "MetroscopeCrossLine", { fg = "#FF6B6B", bold = true })
 	vim.api.nvim_set_hl(0, "MetroscopeTrack", { fg = "#555555" })
 	vim.api.nvim_set_hl(0, "MetroscopeStatusKey", { fg = "#888888" })
+	vim.api.nvim_set_hl(0, "MetroscopeQuestBadge", { fg = "#f59e0b", bold = true })
 end
 
 function M.apply()
@@ -71,6 +72,19 @@ function M.apply()
 		local hl_name = "MetroscopeLine" .. li
 		vim.api.nvim_set_hl(0, hl_name, { fg = line.color, bold = true })
 		vim.api.nvim_buf_add_highlight(state.buf, ns, hl_name, mid_row, 0, LABEL_W)
+
+		-- Quest badge: highlight ⚔N portion in the label
+		local label_text = vim.api.nvim_buf_get_lines(state.buf, mid_row, mid_row + 1, false)[1] or ""
+		local badge_start = label_text:find("⚔", 1, true)
+		if badge_start then
+			-- Find end of the badge (digits after ⚔, 3 bytes for the symbol + digits)
+			local badge_end = badge_start + 2  -- skip ⚔ (3 bytes) - 1 for 0-index = +2
+			while badge_end < #label_text do
+				local next_char = label_text:sub(badge_end + 1, badge_end + 1)
+				if next_char:match("%d") then badge_end = badge_end + 1 else break end
+			end
+			vim.api.nvim_buf_add_highlight(state.buf, ns, "MetroscopeQuestBadge", mid_row, badge_start - 1, badge_end)
+		end
 
 		for si, s in ipairs(line.stations) do
 			local focused = (state.line_idx == li and state.station_idx == si)
