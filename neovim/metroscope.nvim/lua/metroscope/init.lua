@@ -471,17 +471,128 @@ function M.open_quests()
   local function execute_quest()
     local q = quests[cursor_idx]
     if not q then return end
+
     local prompt = string.format(
       "Implement this architectural improvement for the %s component:\n\n%s\n\n%s",
       q.component or "system", q.title or "", q.why or ""
     )
-    -- Escape single quotes for shell
     prompt = prompt:gsub("'", "'\\''")
     local flag = (q.difficulty == "hard") and " --plan" or ""
-    local cmd = "claude" .. flag .. " '" .. prompt .. "'"
-    close()
-    vim.cmd("botright 20split | terminal " .. cmd)
-    vim.notify("Metroscope: launching quest agent — " .. (q.title or ""), vim.log.levels.INFO)
+
+    local has_jj  = vim.fn.executable("jj")  == 1
+    local has_git = vim.fn.executable("git") == 1
+
+    -- Build workspace options for the picker
+    local choices = { "1. Run in current directory" }
+    if has_git then table.insert(choices, "2. Create git worktree") end
+    if has_jj  then table.insert(choices, (has_git and "3" or "2") .. ". Create jj workspace") end
+    table.insert(choices, "")
+    table.insert(choices, "  <Esc>/q to cancel")
+
+    local pick_buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[pick_buf].buftype   = "nofile"
+    vim.bo[pick_buf].bufhidden = "wipe"
+    vim.api.nvim_buf_set_lines(pick_buf, 0, -1, false, choices)
+    vim.bo[pick_buf].modifiable = false
+
+    local W2 = 40
+    local H2 = #choices
+    local pick_win = vim.api.nvim_open_win(pick_buf, true, {
+      relative   = "editor",
+      width      = W2,
+      height     = H2,
+      row        = math.floor((vim.o.lines - H2) / 2),
+      col        = math.floor((vim.o.columns - W2) / 2),
+      style      = "minimal",
+      border     = "rounded",
+      title      = "  Launch workspace  ",
+      title_pos  = "center",
+      zindex     = 200,
+    })
+
+    local function pick_close() vim.api.nvim_win_close(pick_win, true) end
+
+    local function launch(work_dir)
+      local claude_args = { "claude" }
+      if flag ~= "" then table.insert(claude_args, "--plan") end
+      table.insert(claude_args, prompt)
+      close()
+      vim.cmd("botright 20split")
+      vim.api.nvim_set_current_buf(vim.api.nvim_create_buf(false, true))
+      vim.fn.termopen(claude_args, { cwd = work_dir or state.project_root or vim.fn.getcwd() })
+      vim.notify("Metroscope: launching quest — " .. (q.title or ""), vim.log.levels.INFO)
+    end
+
+    local function make_slug()
+      local s = (q.title or "quest"):lower():gsub("[^a-z0-9]+", "-"):gsub("^%-+", ""):gsub("%-+$", "")
+      return s:sub(1, 30)
+    end
+
+    local popts = { buffer = pick_buf, nowait = true, silent = true }
+
+    vim.keymap.set("n", "1", function()
+      pick_close()
+      launch(nil)
+    end, popts)
+
+    if has_git then
+      vim.keymap.set("n", "2", function()
+        pick_close()
+        local slug = make_slug()
+        local branch = "quest/" .. slug
+        local parent   = vim.fn.expand("~") .. "/quest-worktrees"
+        local worktree = parent .. "/" .. slug
+        local setup
+        if vim.fn.isdirectory(worktree) == 1 then
+          setup = "echo '--- reusing existing worktree ---'"
+        else
+          setup = string.format(
+            "mkdir -p %s && git -C %s worktree add -b %s %s 2>&1 && echo '--- worktree ready ---'",
+            vim.fn.shellescape(parent),
+            vim.fn.shellescape(state.project_root or vim.fn.getcwd()),
+            vim.fn.shellescape(branch),
+            vim.fn.shellescape(worktree)
+          )
+        end
+        local result = vim.fn.system(setup)
+        if vim.v.shell_error ~= 0 then
+          vim.notify("Metroscope: git worktree failed:\n" .. result, vim.log.levels.ERROR)
+          return
+        end
+        launch(worktree)
+      end, popts)
+    end
+
+    if has_jj then
+      local jj_key = (has_git and "3") or "2"
+      vim.keymap.set("n", jj_key, function()
+        pick_close()
+        local slug = make_slug()
+        local parent  = vim.fn.expand("~") .. "/quest-worktrees"
+        local workspace = parent .. "/" .. slug
+        -- If workspace dir already exists, reuse it; otherwise create it
+        local setup
+        if vim.fn.isdirectory(workspace) == 1 then
+          setup = "echo '--- reusing existing workspace ---'"
+        else
+          setup = string.format(
+            "mkdir -p %s && jj -R %s workspace add %s 2>&1 && echo '--- workspace ready ---'",
+            vim.fn.shellescape(parent),
+            vim.fn.shellescape(state.project_root or vim.fn.getcwd()),
+            vim.fn.shellescape(workspace)
+          )
+        end
+        local result = vim.fn.system(setup)
+        if vim.v.shell_error ~= 0 then
+          vim.notify("Metroscope: jj workspace failed:\n" .. result, vim.log.levels.ERROR)
+          return
+        end
+        launch(workspace)
+      end, popts)
+    end
+
+    vim.keymap.set("n", "q",     pick_close, popts)
+    vim.keymap.set("n", "<Esc>", pick_close, popts)
   end
 
   vim.keymap.set("n", "j",     function() move(1)  end, opts)
