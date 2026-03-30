@@ -51,6 +51,7 @@ async fn main() -> Result<()> {
         .route("/station/*id", get(handle_station))
         .route("/connections", get(handle_connections))
         .route("/export/svg", get(handle_export_svg))
+        .route("/quests", get(handle_quests))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -201,4 +202,10 @@ async fn handle_export_svg(State(index): State<AppState>) -> impl IntoResponse {
         [(axum::http::header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
         svg,
     )
+}
+
+// ── /quests ───────────────────────────────────────────────────────────────────
+
+async fn handle_quests(State(index): State<AppState>) -> impl IntoResponse {
+    Json(index.quests.clone())
 }

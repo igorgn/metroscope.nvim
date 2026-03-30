@@ -32,6 +32,7 @@ pub struct Summaries {
     pub function_explanations: HashMap<String, String>,
     pub file_summaries: HashMap<String, String>,
     pub system_summary: String,
+    pub quests: Vec<metroscope_types::Quest>,
     pub tokens_in: u32,
     pub tokens_out: u32,
 }
@@ -144,7 +145,11 @@ fn call_via_cli(prompt: &str) -> Result<String> {
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prompts: &PromptOverrides) -> Result<Summaries> {
+pub async fn generate_summaries(
+    files: &[ParsedFile],
+    backend: &LlmBackend,
+    prompts: &PromptOverrides,
+) -> Result<Summaries> {
     let mut function_summaries: HashMap<String, String> = HashMap::new();
     let mut file_summaries: HashMap<String, String> = HashMap::new();
     let mut tokens_in: u32 = 0;
@@ -206,12 +211,39 @@ pub async fn generate_summaries(files: &[ParsedFile], backend: &LlmBackend, prom
     println!("  Generating system summary...");
     let system_prompt = build_system_prompt(files, &file_summaries, prompts.system_prompt.as_deref());
     let system_summary = call!(backend, &system_prompt);
+    let system_summary = system_summary.trim().to_string();
+
+    // --- Architectural quests ---
+    println!("  Generating architectural quests...");
+    // Build per-crate summaries by grouping file summaries under their crate prefix
+    let mut crate_summaries: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for (file_id, summary) in &file_summaries {
+        let crate_name = {
+            let parts: Vec<&str> = file_id.splitn(4, '/').collect();
+            if parts.len() >= 2 && parts[0] == "crates" {
+                parts[1].to_string()
+            } else {
+                "root".to_string()
+            }
+        };
+        crate_summaries.entry(crate_name).or_default().push(summary.clone());
+    }
+    let crate_list: Vec<(String, String)> = crate_summaries
+        .into_iter()
+        .map(|(name, summaries)| (name, summaries.join("; ")))
+        .collect();
+
+    let quests_prompt = build_quests_prompt(&system_summary, &crate_list);
+    let quests_response = call!(backend, &quests_prompt);
+    let quests = parse_quests(&quests_response);
+    println!("  Generated {} quests", quests.len());
 
     Ok(Summaries {
         function_summaries,
         function_explanations,
         file_summaries,
-        system_summary: system_summary.trim().to_string(),
+        system_summary,
+        quests,
         tokens_in,
         tokens_out,
     })
@@ -323,4 +355,49 @@ Be concrete. Use present tense."
     }
 
     lines.join("\n")
+}
+
+fn build_quests_prompt(system_summary: &str, crate_summaries: &[(String, String)]) -> String {
+    let mut prompt = format!(
+        "You are a senior software architect reviewing a codebase.\n\
+System summary: {system_summary}\n\
+\n\
+Components:\n"
+    );
+    for (name, summary) in crate_summaries {
+        prompt.push_str(&format!("- {name}: {summary}\n"));
+    }
+    prompt.push_str(
+        "\nIdentify 3-7 architectural improvements for this system.\n\
+Focus ONLY on system-level concerns: security, observability, resilience, scalability, \
+missing layers, integration gaps.\n\
+Do NOT suggest code style changes or function-level improvements.\n\
+\n\
+Respond with one quest per line, exactly in this format:\n\
+component|easy/medium/hard|Short title (max 8 words)|Why it matters (2-3 sentences)\n\
+\n\
+Use \"system\" as component for cross-cutting concerns.",
+    );
+    prompt
+}
+
+fn parse_quests(response: &str) -> Vec<metroscope_types::Quest> {
+    use metroscope_types::{Quest, QuestDifficulty};
+    let mut quests = Vec::new();
+    for line in response.lines() {
+        let parts: Vec<&str> = line.splitn(4, '|').collect();
+        if parts.len() != 4 { continue; }
+        let difficulty = match parts[1].trim().to_lowercase().as_str() {
+            "easy"   => QuestDifficulty::Easy,
+            "hard"   => QuestDifficulty::Hard,
+            _        => QuestDifficulty::Medium,
+        };
+        quests.push(Quest {
+            component:  parts[0].trim().to_string(),
+            difficulty,
+            title:      parts[2].trim().to_string(),
+            why:        parts[3].trim().to_string(),
+        });
+    }
+    quests
 }

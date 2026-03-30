@@ -339,6 +339,107 @@ function M.index(project_root, api_key)
   vim.cmd("botright 15split | terminal " .. cmd)
 end
 
+function M.open_quests()
+  local handle = io.popen('curl -s --max-time 4 "' .. config.server .. '/quests"')
+  if not handle then
+    vim.notify("Metroscope: could not reach server", vim.log.levels.ERROR)
+    return
+  end
+  local result = handle:read("*a")
+  handle:close()
+  if not result or result == "" then
+    vim.notify("Metroscope: no response from server", vim.log.levels.ERROR)
+    return
+  end
+  local ok, quests = pcall(vim.json.decode, result)
+  if not ok or type(quests) ~= "table" then
+    vim.notify("Metroscope: failed to parse quests", vim.log.levels.ERROR)
+    return
+  end
+  if #quests == 0 then
+    vim.notify("Metroscope: no quests — re-index to generate", vim.log.levels.WARN)
+    return
+  end
+
+  -- Highlight groups
+  vim.api.nvim_set_hl(0, "MetroscopeQuestEasy",   { fg = "#22c55e", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestMedium", { fg = "#f59e0b", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestHard",   { fg = "#ef4444", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestTitle",  { fg = "#f1f5f9", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestComp",   { fg = "#64748b" })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestWhy",    { fg = "#94a3b8" })
+
+  local W = 68
+  local util = require("metroscope.util")
+
+  -- Build rows + highlight metadata
+  local rows = {}
+  local hl_marks = {} -- { line (0-based), hl_group }
+
+  local function push(text, hl)
+    table.insert(rows, text)
+    if hl then hl_marks[#rows] = hl end
+  end
+
+  push("  Architectural Quests", "MetroscopeQuestTitle")
+  push(string.rep("─", W - 2))
+  push("")
+
+  for i, q in ipairs(quests) do
+    local diff_hl = q.difficulty == "easy" and "MetroscopeQuestEasy"
+               or  q.difficulty == "hard"  and "MetroscopeQuestHard"
+               or  "MetroscopeQuestMedium"
+    local badge = q.difficulty == "easy" and "[Easy]" or q.difficulty == "hard" and "[Hard]" or "[Medium]"
+    push("  " .. badge .. "  " .. (q.component or "system"), diff_hl)
+    push("  " .. (q.title or ""), "MetroscopeQuestTitle")
+    for _, wl in ipairs(util.word_wrap(q.why or "", W - 4)) do
+      push("  " .. wl, "MetroscopeQuestWhy")
+    end
+    if i < #quests then
+      push("")
+      push(string.rep("╌", W - 2), "MetroscopeQuestComp")
+      push("")
+    end
+  end
+  push("")
+
+  local H = math.min(#rows + 2, math.floor(vim.o.lines * 0.75))
+  local erow = math.floor((vim.o.lines - H) / 2)
+  local ecol = math.floor((vim.o.columns - W) / 2)
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].buftype   = "nofile"
+  vim.bo[buf].bufhidden = "wipe"
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, rows)
+  vim.bo[buf].modifiable = false
+
+  local ns = vim.api.nvim_create_namespace("metroscope_quests")
+  for lnum, hl in pairs(hl_marks) do
+    vim.api.nvim_buf_add_highlight(buf, ns, hl, lnum - 1, 0, -1)
+  end
+
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative   = "editor",
+    width      = W,
+    height     = H,
+    row        = erow,
+    col        = ecol,
+    style      = "minimal",
+    border     = "rounded",
+    title      = "  ⚔ Quests  ",
+    title_pos  = "center",
+    footer     = "  j/k:scroll  q/<Esc>:close  ",
+    footer_pos = "center",
+    zindex     = 150,
+  })
+  vim.wo[win].wrap = true
+
+  local opts = { buffer = buf, nowait = true, silent = true }
+  local function close() vim.api.nvim_win_close(win, true) end
+  vim.keymap.set("n", "q",     close, opts)
+  vim.keymap.set("n", "<Esc>", close, opts)
+end
+
 function M.setup(opts)
   opts = opts or {}
   if opts.server      then config.server      = opts.server      end
@@ -348,6 +449,7 @@ function M.setup(opts)
   local leader = opts.leader or "<leader>m"
   vim.keymap.set("n", leader .. "s", M.open,          { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "l", M.open_stations, { desc = "Metroscope: open station list for current file" })
+  vim.keymap.set("n", leader .. "q", M.open_quests,   { desc = "Metroscope: show architectural quests" })
   vim.keymap.set("n", leader .. "e", function()
     local url = config.server .. "/export/svg"
     local open_cmd = vim.fn.has("mac") == 1 and "open" or "xdg-open"

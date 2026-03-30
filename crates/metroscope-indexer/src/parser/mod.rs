@@ -10,8 +10,8 @@ pub struct ParsedFunction {
     pub name: String,
     pub kind: StationKind,
     pub location: Location,
-    /// Raw source text of the function body (for LLM summarization)
     pub body: String,
+    /// raw source text of the function body (for llm summarization)
     /// Names of functions this function calls (best-effort)
     pub calls: Vec<String>,
 }

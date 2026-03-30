@@ -82,13 +82,13 @@ fn crate_id_of(line_id: &str) -> &str {
 fn kind_badge(k: &StationKind) -> &'static str {
     match k {
         StationKind::Function => "fn",
-        StationKind::Method   => "→",
-        StationKind::Closure  => "λ",
-        StationKind::Struct   => "st",
-        StationKind::Enum     => "en",
-        StationKind::Trait    => "tr",
-        StationKind::Impl     => "im",
-        StationKind::Module   => "mod",
+        StationKind::Method => "→",
+        StationKind::Closure => "λ",
+        StationKind::Struct => "st",
+        StationKind::Enum => "en",
+        StationKind::Trait => "tr",
+        StationKind::Impl => "im",
+        StationKind::Module => "mod",
     }
 }
 
@@ -104,20 +104,41 @@ struct StationLayout {
 
 // ── SVG builder helpers ───────────────────────────────────────────────────────
 
-fn rect(x: f64, y: f64, w: f64, h: f64, rx: f64, fill: &str, stroke: &str, stroke_w: f64, extra: &str) -> String {
+fn rect(
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    rx: f64,
+    fill: &str,
+    stroke: &str,
+    stroke_w: f64,
+    extra: &str,
+) -> String {
     format!(
         r#"  <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" ry="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="{stroke_w}"{extra}/>"#
     )
 }
 
-fn text(x: f64, y: f64, size: f64, fill: &str, weight: &str, anchor: &str, content: &str, extra: &str) -> String {
+fn text(
+    x: f64,
+    y: f64,
+    size: f64,
+    fill: &str,
+    weight: &str,
+    anchor: &str,
+    content: &str,
+    extra: &str,
+) -> String {
     format!(
         r#"  <text x="{x}" y="{y}" font-size="{size}" fill="{fill}" font-weight="{weight}" text-anchor="{anchor}"{extra}>{content}</text>"#
     )
 }
 
 fn line_el(x1: f64, y1: f64, x2: f64, y2: f64, stroke: &str, sw: f64, extra: &str) -> String {
-    format!(r#"  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" stroke-width="{sw}"{extra}/>"#)
+    format!(
+        r#"  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" stroke-width="{sw}"{extra}/>"#
+    )
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -137,16 +158,27 @@ pub fn render_svg(index: &Index) -> String {
     crate_names.sort();
 
     // Station box heights
-    let station_h: HashMap<&str, f64> = index.stations.iter().map(|(id, s)| {
-        let lines = word_wrap(&s.explanation, WRAP_COLS);
-        let h = BOX_HEADER_H + BOX_PADDING + (lines.len() as f64) * LINE_H + BOX_PADDING;
-        (id.as_str(), h)
-    }).collect();
+    let station_h: HashMap<&str, f64> = index
+        .stations
+        .iter()
+        .map(|(id, s)| {
+            let lines = word_wrap(&s.explanation, WRAP_COLS);
+            let h = BOX_HEADER_H + BOX_PADDING + (lines.len() as f64) * LINE_H + BOX_PADDING;
+            (id.as_str(), h)
+        })
+        .collect();
 
     // Layout pass
     let mut layouts: HashMap<String, StationLayout> = HashMap::new();
 
-    struct CrateBox { name: String, x: f64, y: f64, w: f64, h: f64, ci: usize }
+    struct CrateBox {
+        name: String,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        ci: usize,
+    }
     let mut crate_boxes: Vec<CrateBox> = Vec::new();
 
     let mut cursor_x = MARGIN;
@@ -157,28 +189,50 @@ pub fn render_svg(index: &Index) -> String {
         let mut cursor_y = MARGIN + CRATE_PADDING_TOP;
 
         for (fi, line_id) in lines_in_crate.iter().enumerate() {
-            let line = match index.lines.get(line_id) { Some(l) => l, None => continue };
-            if fi > 0 { cursor_y += FILE_GAP_Y; }
+            let line = match index.lines.get(line_id) {
+                Some(l) => l,
+                None => continue,
+            };
+            if fi > 0 {
+                cursor_y += FILE_GAP_Y;
+            }
             cursor_y += 20.0; // file label
             for sid in &line.stations {
                 let h = *station_h.get(sid.as_str()).unwrap_or(&60.0);
                 let bx = crate_x + CRATE_PADDING_X;
-                layouts.insert(sid.clone(), StationLayout {
-                    x: bx, y: cursor_y, w: BOX_W, h,
-                    cy: cursor_y + h / 2.0,
-                });
+                layouts.insert(
+                    sid.clone(),
+                    StationLayout {
+                        x: bx,
+                        y: cursor_y,
+                        w: BOX_W,
+                        h,
+                        cy: cursor_y + h / 2.0,
+                    },
+                );
                 cursor_y += h + STATION_GAP_Y;
             }
         }
 
         let crate_h = cursor_y - (MARGIN + CRATE_PADDING_TOP) + CRATE_PADDING_BOT + MARGIN;
         let crate_w = BOX_W + CRATE_PADDING_X * 2.0;
-        crate_boxes.push(CrateBox { name: crate_name.clone(), x: crate_x, y: MARGIN, w: crate_w, h: crate_h, ci });
+        crate_boxes.push(CrateBox {
+            name: crate_name.clone(),
+            x: crate_x,
+            y: MARGIN,
+            w: crate_w,
+            h: crate_h,
+            ci,
+        });
         cursor_x += crate_w + CRATE_GAP_X;
     }
 
     let total_w = cursor_x - CRATE_GAP_X + MARGIN;
-    let total_h = crate_boxes.iter().map(|c| c.y + c.h + MARGIN).fold(0.0f64, f64::max) + 40.0;
+    let total_h = crate_boxes
+        .iter()
+        .map(|c| c.y + c.h + MARGIN)
+        .fold(0.0f64, f64::max)
+        + 40.0;
 
     let mut out = Vec::<String>::new();
 
@@ -206,20 +260,54 @@ pub fn render_svg(index: &Index) -> String {
     ));
 
     // System summary
-    out.push(text(MARGIN, 26.0, 11.0, FILE_LABEL_C, "normal", "start",
-        &xml(&index.system_summary.chars().take(130).collect::<String>()), r#" font-style="italic""#));
+    out.push(text(
+        MARGIN,
+        26.0,
+        11.0,
+        FILE_LABEL_C,
+        "normal",
+        "start",
+        &xml(&index.system_summary.chars().take(130).collect::<String>()),
+        r#" font-style="italic""#,
+    ));
 
     // Crate panels
     for cb in &crate_boxes {
         let (cbg, cacc) = CRATE_COLORS[cb.ci % CRATE_COLORS.len()];
         // Panel
-        out.push(rect(cb.x, cb.y, cb.w, cb.h, 12.0, cbg, cacc, 1.5, r#" filter="url(#sh)""#));
+        out.push(rect(
+            cb.x,
+            cb.y,
+            cb.w,
+            cb.h,
+            12.0,
+            cbg,
+            cacc,
+            1.5,
+            r#" filter="url(#sh)""#,
+        ));
         // Header bar
-        out.push(rect(cb.x, cb.y, cb.w, 36.0, 12.0, cacc, "none", 0.0, r#" opacity="0.12""#));
+        out.push(rect(
+            cb.x,
+            cb.y,
+            cb.w,
+            36.0,
+            12.0,
+            cacc,
+            "none",
+            0.0,
+            r#" opacity="0.12""#,
+        ));
         // Crate name
         out.push(text(
-            cb.x + cb.w / 2.0, cb.y + 23.0, 12.0, cacc, "bold", "middle",
-            &xml(&cb.name.to_uppercase()), r#" letter-spacing="1.5""#,
+            cb.x + cb.w / 2.0,
+            cb.y + 23.0,
+            12.0,
+            cacc,
+            "bold",
+            "middle",
+            &xml(&cb.name.to_uppercase()),
+            r#" letter-spacing="1.5""#,
         ));
     }
 
@@ -230,43 +318,105 @@ pub fn render_svg(index: &Index) -> String {
         let lines_in_crate = &crate_lines[crate_name];
 
         for line_id in lines_in_crate {
-            let line = match index.lines.get(line_id) { Some(l) => l, None => continue };
+            let line = match index.lines.get(line_id) {
+                Some(l) => l,
+                None => continue,
+            };
             let short = line_id.split('/').last().unwrap_or(&line.name);
 
             // File label above first station
             if let Some(first_sl) = line.stations.first().and_then(|s| layouts.get(s)) {
                 out.push(text(
-                    cb.x + CRATE_PADDING_X, first_sl.y - 5.0, 10.0, cacc,
-                    "normal", "start", &xml(short), r#" opacity="0.8""#,
+                    cb.x + CRATE_PADDING_X,
+                    first_sl.y - 5.0,
+                    10.0,
+                    cacc,
+                    "normal",
+                    "start",
+                    &xml(short),
+                    r#" opacity="0.8""#,
                 ));
             }
 
             // Stations
             for sid in &line.stations {
-                let station = match index.stations.get(sid) { Some(s) => s, None => continue };
-                let sl = match layouts.get(sid) { Some(l) => l, None => continue };
+                let station = match index.stations.get(sid) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                let sl = match layouts.get(sid) {
+                    Some(l) => l,
+                    None => continue,
+                };
                 let wrapped = word_wrap(&station.explanation, WRAP_COLS);
 
                 // Box
-                out.push(rect(sl.x, sl.y, sl.w, sl.h, 8.0, STATION_BG, STATION_BORDER, 1.0, ""));
+                out.push(rect(
+                    sl.x,
+                    sl.y,
+                    sl.w,
+                    sl.h,
+                    8.0,
+                    STATION_BG,
+                    STATION_BORDER,
+                    1.0,
+                    "",
+                ));
                 // Left accent bar
-                out.push(rect(sl.x, sl.y + 4.0, 3.0, sl.h - 8.0, 2.0, cacc, "none", 0.0, ""));
+                out.push(rect(
+                    sl.x,
+                    sl.y + 4.0,
+                    3.0,
+                    sl.h - 8.0,
+                    2.0,
+                    cacc,
+                    "none",
+                    0.0,
+                    "",
+                ));
                 // Name
-                out.push(text(sl.x + 14.0, sl.y + 19.0, 12.0, STATION_NAME_C, "bold", "start",
-                    &xml(&station.name), ""));
+                out.push(text(
+                    sl.x + 14.0,
+                    sl.y + 19.0,
+                    12.0,
+                    STATION_NAME_C,
+                    "bold",
+                    "start",
+                    &xml(&station.name),
+                    "",
+                ));
                 // Kind badge
-                out.push(text(sl.x + sl.w - 8.0, sl.y + 18.0, 9.0, cacc, "normal", "end",
-                    kind_badge(&station.kind), r#" opacity="0.7""#));
+                out.push(text(
+                    sl.x + sl.w - 8.0,
+                    sl.y + 18.0,
+                    9.0,
+                    cacc,
+                    "normal",
+                    "end",
+                    kind_badge(&station.kind),
+                    r#" opacity="0.7""#,
+                ));
                 // Divider
-                out.push(line_el(sl.x + 10.0, sl.y + BOX_HEADER_H,
-                    sl.x + sl.w - 10.0, sl.y + BOX_HEADER_H,
-                    STATION_BORDER, 0.5, r#" opacity="0.4""#));
+                out.push(line_el(
+                    sl.x + 10.0,
+                    sl.y + BOX_HEADER_H,
+                    sl.x + sl.w - 10.0,
+                    sl.y + BOX_HEADER_H,
+                    STATION_BORDER,
+                    0.5,
+                    r#" opacity="0.4""#,
+                ));
                 // Explanation lines
                 for (li, wline) in wrapped.iter().enumerate() {
                     out.push(text(
                         sl.x + 14.0,
                         sl.y + BOX_HEADER_H + BOX_PADDING + li as f64 * LINE_H,
-                        10.0, EXPL_C, "normal", "start", &xml(wline), "",
+                        10.0,
+                        EXPL_C,
+                        "normal",
+                        "start",
+                        &xml(wline),
+                        "",
                     ));
                 }
             }
@@ -275,17 +425,32 @@ pub fn render_svg(index: &Index) -> String {
 
     // Arrows
     for station in index.stations.values() {
-        let from_sl = match layouts.get(&station.id) { Some(l) => l, None => continue };
+        let from_sl = match layouts.get(&station.id) {
+            Some(l) => l,
+            None => continue,
+        };
         let from_crate = crate_id_of(&station.line_id);
 
         for conn in &station.connections {
-            if conn.kind != ConnectionKind::Calls { continue; }
-            let to_sl = match layouts.get(&conn.to) { Some(l) => l, None => continue };
-            let to_station = match index.stations.get(&conn.to) { Some(s) => s, None => continue };
+            if conn.kind != ConnectionKind::Calls {
+                continue;
+            }
+            let to_sl = match layouts.get(&conn.to) {
+                Some(l) => l,
+                None => continue,
+            };
+            let to_station = match index.stations.get(&conn.to) {
+                Some(s) => s,
+                None => continue,
+            };
             let to_crate = crate_id_of(&to_station.line_id);
             let cross = from_crate != to_crate;
 
-            let (color, marker) = if cross { (ARROW_CROSS_C, "arr-x") } else { (ARROW_C, "arr") };
+            let (color, marker) = if cross {
+                (ARROW_CROSS_C, "arr-x")
+            } else {
+                (ARROW_C, "arr")
+            };
 
             let x1 = from_sl.x + from_sl.w;
             let y1 = from_sl.cy;
@@ -305,10 +470,44 @@ pub fn render_svg(index: &Index) -> String {
 
     // Legend
     let ly = total_h - 26.0;
-    out.push(line_el(MARGIN, ly, MARGIN + 28.0, ly, ARROW_C, 1.5, r#" marker-end="url(#arr)""#));
-    out.push(text(MARGIN + 34.0, ly + 4.0, 10.0, LEGEND_C, "normal", "start", "calls (same crate)", ""));
-    out.push(line_el(MARGIN + 170.0, ly, MARGIN + 198.0, ly, ARROW_CROSS_C, 1.5, r#" marker-end="url(#arr-x)""#));
-    out.push(text(MARGIN + 204.0, ly + 4.0, 10.0, LEGEND_C, "normal", "start", "calls (cross-crate)", ""));
+    out.push(line_el(
+        MARGIN,
+        ly,
+        MARGIN + 28.0,
+        ly,
+        ARROW_C,
+        1.5,
+        r#" marker-end="url(#arr)""#,
+    ));
+    out.push(text(
+        MARGIN + 34.0,
+        ly + 4.0,
+        10.0,
+        LEGEND_C,
+        "normal",
+        "start",
+        "calls (same crate)",
+        "",
+    ));
+    out.push(line_el(
+        MARGIN + 170.0,
+        ly,
+        MARGIN + 198.0,
+        ly,
+        ARROW_CROSS_C,
+        1.5,
+        r#" marker-end="url(#arr-x)""#,
+    ));
+    out.push(text(
+        MARGIN + 204.0,
+        ly + 4.0,
+        10.0,
+        LEGEND_C,
+        "normal",
+        "start",
+        "calls (cross-crate)",
+        "",
+    ));
 
     out.push("</svg>".to_string());
     out.join("\n")

@@ -223,6 +223,7 @@ async fn index_project(
         stations,
         lines,
         entry_points,
+        quests: summaries.quests,
     };
 
     let index_dir = project_root.join(".metroscope");

@@ -29,6 +29,22 @@ pub enum ConnectionKind {
     CalledBy,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QuestDifficulty { Easy, Medium, Hard }
+
+/// An architectural improvement suggestion generated at index time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Quest {
+    /// Short title, e.g. "Add authentication layer"
+    pub title: String,
+    /// Crate name this applies to, or "system" for cross-cutting concerns
+    pub component: String,
+    /// 2-3 sentences on why it matters
+    pub why: String,
+    pub difficulty: QuestDifficulty,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {
     /// Station id this connection points to
@@ -79,6 +95,9 @@ pub struct Index {
     pub lines: HashMap<String, Line>,
     /// Station ids that are entry points (e.g. `main`)
     pub entry_points: Vec<String>,
+    /// Architectural improvement suggestions generated at index time
+    #[serde(default)]
+    pub quests: Vec<Quest>,
 }
 
 impl Index {
