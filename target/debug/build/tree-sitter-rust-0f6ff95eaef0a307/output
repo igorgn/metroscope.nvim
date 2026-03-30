@@ -74,4 +74,4 @@ ARFLAGS_aarch64_apple_darwin = None
 cargo:rerun-if-env-changed=ARFLAGS_aarch64-apple-darwin
 ARFLAGS_aarch64-apple-darwin = None
 cargo:rustc-link-lib=static=tree-sitter-rust
-cargo:rustc-link-search=native=/Users/igorgn/Documents/projects/igorgn/metroscope/target/debug/build/tree-sitter-rust-0f6ff95eaef0a307/out
+cargo:rustc-link-search=native=/Users/igorgn/quest-worktrees/watch-index-file-and-hot-reloa/target/debug/build/tree-sitter-rust-0f6ff95eaef0a307/out

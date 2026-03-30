@@ -16,3 +16,4 @@ anyhow = { workspace = true }
 axum = { version = "0.7", features = ["json"] }
 tower-http = { version = "0.5", features = ["cors"] }
 clap = { version = "4", features = ["derive"] }
+notify = { version = "6", features = ["serde"] }

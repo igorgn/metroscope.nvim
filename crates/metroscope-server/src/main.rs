@@ -3,6 +3,7 @@ mod export;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -13,7 +14,9 @@ use axum::{
 };
 use clap::Parser as ClapParser;
 use metroscope_types::{ConnectionKind, Index};
+use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
 #[derive(ClapParser)]
@@ -25,16 +28,20 @@ struct Cli {
     port: u16,
 }
 
-type AppState = Arc<Index>;
+type AppState = Arc<RwLock<Index>>;
+
+fn load_index(index_file: &PathBuf) -> Result<Index> {
+    let json = std::fs::read_to_string(index_file)
+        .with_context(|| format!("Cannot read {}", index_file.display()))?;
+    serde_json::from_str(&json).context("Failed to parse index.json")
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let index_file = cli.index_path.join(".metroscope/index.json");
-    let json = std::fs::read_to_string(&index_file)
-        .with_context(|| format!("Cannot read {}", index_file.display()))?;
-    let index: Index = serde_json::from_str(&json).context("Failed to parse index.json")?;
+    let index = load_index(&index_file)?;
 
     println!(
         "Loaded index: {} stations, {} lines",
@@ -43,7 +50,16 @@ async fn main() -> Result<()> {
     );
     println!("System: {}", index.system_summary);
 
-    let state: AppState = Arc::new(index);
+    let state: AppState = Arc::new(RwLock::new(index));
+
+    // Spawn file watcher that hot-reloads index.json on change.
+    {
+        let state = Arc::clone(&state);
+        let index_file = index_file.clone();
+        tokio::spawn(async move {
+            watch_index(state, index_file).await;
+        });
+    }
 
     let app = Router::new()
         .route("/map", get(handle_map))
@@ -64,6 +80,69 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Watches index_file for modifications and reloads the index in-place.
+async fn watch_index(state: AppState, index_file: PathBuf) {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
+
+    // notify uses a std channel; bridge to tokio via a spawned thread.
+    let index_file_clone = index_file.clone();
+    let mut watcher: RecommendedWatcher = match notify::Watcher::new(
+        move |res: notify::Result<Event>| {
+            if let Ok(event) = res {
+                if matches!(
+                    event.kind,
+                    EventKind::Modify(_) | EventKind::Create(_)
+                ) {
+                    // Ignore send errors (receiver may have been dropped on shutdown).
+                    let _ = tx.try_send(());
+                }
+            }
+        },
+        Config::default().with_poll_interval(Duration::from_secs(1)),
+    ) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("[metroscope] Failed to create file watcher: {e}");
+            return;
+        }
+    };
+
+    // Watch the parent directory so we catch atomic writes (rename-into-place).
+    let watch_dir = index_file_clone
+        .parent()
+        .expect("index file must have a parent directory");
+
+    if let Err(e) = watcher.watch(watch_dir, RecursiveMode::NonRecursive) {
+        eprintln!("[metroscope] Failed to watch {}: {e}", watch_dir.display());
+        return;
+    }
+
+    println!(
+        "[metroscope] Watching {} for changes",
+        index_file.display()
+    );
+
+    while rx.recv().await.is_some() {
+        // Drain any extra notifications that arrived while we were reloading.
+        while rx.try_recv().is_ok() {}
+
+        // Small delay to let the writer finish flushing.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        match load_index(&index_file) {
+            Ok(new_index) => {
+                let stations = new_index.stations.len();
+                let lines = new_index.lines.len();
+                *state.write().await = new_index;
+                println!("[metroscope] Index reloaded: {stations} stations, {lines} lines");
+            }
+            Err(e) => {
+                eprintln!("[metroscope] Failed to reload index: {e}");
+            }
+        }
+    }
+}
+
 // ── /map ─────────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -79,6 +158,7 @@ async fn handle_map(
     State(index): State<AppState>,
     Query(params): Query<MapParams>,
 ) -> impl IntoResponse {
+    let index = index.read().await;
     let station = match (&params.file, params.line) {
         (Some(f), Some(l)) => index.station_at(f, l),
         _ => None,
@@ -116,6 +196,7 @@ async fn handle_station(
     State(index): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let index = index.read().await;
     let station = match index.stations.get(&id) {
         Some(s) => s,
         None => return Json(serde_json::json!({ "error": "not found", "id": id })),
@@ -185,18 +266,21 @@ async fn handle_connections(
     State(index): State<AppState>,
     Query(params): Query<ConnectionsParams>,
 ) -> impl IntoResponse {
+    let index = index.read().await;
     Json(map::build_file_connections(&index, &params.file))
 }
 
 // ── /module-map ───────────────────────────────────────────────────────────────
 
 async fn handle_module_map(State(index): State<AppState>) -> impl IntoResponse {
+    let index = index.read().await;
     Json(map::build_module_map(&index))
 }
 
 // ── /export/svg ───────────────────────────────────────────────────────────────
 
 async fn handle_export_svg(State(index): State<AppState>) -> impl IntoResponse {
+    let index = index.read().await;
     let svg = export::render_svg(&index);
     (
         [(axum::http::header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
@@ -207,5 +291,6 @@ async fn handle_export_svg(State(index): State<AppState>) -> impl IntoResponse {
 // ── /quests ───────────────────────────────────────────────────────────────────
 
 async fn handle_quests(State(index): State<AppState>) -> impl IntoResponse {
+    let index = index.read().await;
     Json(index.quests.clone())
 }
