@@ -156,5 +156,5 @@ ARFLAGS_aarch64_apple_darwin = None
 cargo:rerun-if-env-changed=ARFLAGS_aarch64-apple-darwin
 ARFLAGS_aarch64-apple-darwin = None
 cargo:rustc-link-lib=static=tree-sitter
-cargo:rustc-link-search=native=/Users/igorgn/quest-worktrees/watch-index-file-and-hot-reloa/target/debug/build/tree-sitter-642af795e1dfb8b1/out
+cargo:rustc-link-search=native=/Users/igorgn/Documents/projects/igorgn/metroscope/target/debug/build/tree-sitter-642af795e1dfb8b1/out
 cargo:include=/Users/igorgn/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tree-sitter-0.24.7/include

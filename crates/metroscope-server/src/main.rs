@@ -1,5 +1,5 @@
-mod map;
 mod export;
+mod map;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -89,10 +89,7 @@ async fn watch_index(state: AppState, index_file: PathBuf) {
     let mut watcher: RecommendedWatcher = match notify::Watcher::new(
         move |res: notify::Result<Event>| {
             if let Ok(event) = res {
-                if matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Create(_)
-                ) {
+                if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                     // Ignore send errors (receiver may have been dropped on shutdown).
                     let _ = tx.try_send(());
                 }
@@ -117,10 +114,7 @@ async fn watch_index(state: AppState, index_file: PathBuf) {
         return;
     }
 
-    println!(
-        "[metroscope] Watching {} for changes",
-        index_file.display()
-    );
+    println!("[metroscope] Watching {} for changes", index_file.display());
 
     while rx.recv().await.is_some() {
         // Drain any extra notifications that arrived while we were reloading.
@@ -163,7 +157,11 @@ async fn handle_map(
         (Some(f), Some(l)) => index.station_at(f, l),
         _ => None,
     };
-    Json(map::build_map_response(&index, station, params.crate_filter.as_deref()))
+    Json(map::build_map_response(
+        &index,
+        station,
+        params.crate_filter.as_deref(),
+    ))
 }
 
 // ── /station/:id ─────────────────────────────────────────────────────────────
@@ -225,7 +223,9 @@ async fn handle_station(
         };
 
         // Only include connections that resolved to a known station
-        if resolved.file.is_empty() { continue; }
+        if resolved.file.is_empty() {
+            continue;
+        }
 
         match conn.kind {
             ConnectionKind::Calls => calls.push(resolved),
@@ -240,19 +240,22 @@ async fn handle_station(
         .unwrap_or("")
         .to_string();
 
-    Json(serde_json::to_value(StationDetail {
-        id: station.id.clone(),
-        name: station.name.clone(),
-        kind: format!("{:?}", station.kind).to_lowercase(),
-        file: station.location.file.clone(),
-        line_start: station.location.line_start,
-        line_end: station.location.line_end,
-        summary: station.summary.clone(),
-        explanation: station.explanation.clone(),
-        calls,
-        called_by,
-        line_summary,
-    }).unwrap())
+    Json(
+        serde_json::to_value(StationDetail {
+            id: station.id.clone(),
+            name: station.name.clone(),
+            kind: format!("{:?}", station.kind).to_lowercase(),
+            file: station.location.file.clone(),
+            line_start: station.location.line_start,
+            line_end: station.location.line_end,
+            summary: station.summary.clone(),
+            explanation: station.explanation.clone(),
+            calls,
+            called_by,
+            line_summary,
+        })
+        .unwrap(),
+    )
 }
 
 // ── /connections ─────────────────────────────────────────────────────────────
@@ -283,7 +286,10 @@ async fn handle_export_svg(State(index): State<AppState>) -> impl IntoResponse {
     let index = index.read().await;
     let svg = export::render_svg(&index);
     (
-        [(axum::http::header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "image/svg+xml; charset=utf-8",
+        )],
         svg,
     )
 }
