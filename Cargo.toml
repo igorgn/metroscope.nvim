@@ -3,6 +3,7 @@ members = [
     "crates/metroscope-types",
     "crates/metroscope-indexer",
     "crates/metroscope-server",
+    "crates/metroscope-hayai",
 ]
 resolver = "2"
 

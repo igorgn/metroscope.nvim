@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "hayai": {
+      "type": "http",
+      "url": "http://localhost:7778/mcp"
+    },
     "serena": {
       "type": "stdio",
       "command": "/opt/homebrew/bin/uvx",
