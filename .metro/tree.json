@@ -1,0 +1,87 @@
+{
+  "acts": [
+    {
+      "number": 1,
+      "title": "Act 1 — Metroscope indexes a Rust codebase with Claude-generated summaries and serves a navigable function-level map via HTTP for editor integration.",
+      "status": "active",
+      "quest_ids": [
+        "fe349b6c-855c-439d-89f3-dbe43b6ae193",
+        "7eabfa69-5487-4f59-8e46-82faea00bcea",
+        "5dfdd814-dd1d-4966-bf2c-e2981329417e",
+        "77fccea6-f66c-4b9d-a237-9aa1c0c1a6c9",
+        "ead3edf1-b9b1-46fe-af08-89f83589b276",
+        "f668358a-3be8-484b-880b-1d0de66d2b97"
+      ]
+    }
+  ],
+  "quests": {
+    "7eabfa69-5487-4f59-8e46-82faea00bcea": {
+      "id": "7eabfa69-5487-4f59-8e46-82faea00bcea",
+      "title": "Watch index file and hot-reload without restart",
+      "description": "The server loads index.json once at startup and requires a manual restart after re-indexing. A file watcher (notify crate) would make the editor integration seamless.\n\nComponent: metroscope-server | Difficulty: easy",
+      "act": 1,
+      "status": "available",
+      "depends_on": [],
+      "unlocks": [],
+      "fork_ids": [],
+      "created_at": "2026-04-03T23:44:44.260172Z"
+    },
+    "f668358a-3be8-484b-880b-1d0de66d2b97": {
+      "id": "f668358a-3be8-484b-880b-1d0de66d2b97",
+      "title": "Add retry and partial-failure recovery for LLM batch calls",
+      "description": "A single API error aborts the entire indexing run, discarding all prior LLM work. Retrying failed batches and writing a partial index on interrupt would make large-project indexing resilient.\n\nComponent: metroscope-indexer | Difficulty: medium",
+      "act": 1,
+      "status": "available",
+      "depends_on": [],
+      "unlocks": [],
+      "fork_ids": [],
+      "created_at": "2026-04-03T23:44:44.260172Z"
+    },
+    "5dfdd814-dd1d-4966-bf2c-e2981329417e": {
+      "id": "5dfdd814-dd1d-4966-bf2c-e2981329417e",
+      "title": "Replace ad-hoc println logging with structured tracing",
+      "description": "All observability is via println!/eprintln!, making it impossible to filter, sample, or ship logs in production. The tracing crate is already common in the axum ecosystem.\n\nComponent: system | Difficulty: medium",
+      "act": 1,
+      "status": "available",
+      "depends_on": [],
+      "unlocks": [],
+      "fork_ids": [],
+      "created_at": "2026-04-03T23:44:44.260172Z"
+    },
+    "fe349b6c-855c-439d-89f3-dbe43b6ae193": {
+      "id": "fe349b6c-855c-439d-89f3-dbe43b6ae193",
+      "title": "Add incremental re-indexing with file-level caching",
+      "description": "Every re-index re-calls the LLM for every function, even unchanged ones. Caching summaries by file hash would cut API cost and latency by 80-90% for typical edit cycles.\n\nComponent: metroscope-indexer | Difficulty: medium",
+      "act": 1,
+      "status": "available",
+      "depends_on": [],
+      "unlocks": [],
+      "fork_ids": [],
+      "created_at": "2026-04-03T23:44:44.260172Z"
+    },
+    "77fccea6-f66c-4b9d-a237-9aa1c0c1a6c9": {
+      "id": "77fccea6-f66c-4b9d-a237-9aa1c0c1a6c9",
+      "title": "Bind to 127.0.0.1 only with configurable auth token",
+      "description": "The server uses CorsLayer::permissive() and binds to localhost with no authentication, so any local process or browser tab can read the full index. A static bearer token would close this.\n\nComponent: metroscope-server | Difficulty: easy",
+      "act": 1,
+      "status": "available",
+      "depends_on": [],
+      "unlocks": [],
+      "fork_ids": [],
+      "created_at": "2026-04-03T23:44:44.260172Z"
+    },
+    "ead3edf1-b9b1-46fe-af08-89f83589b276": {
+      "id": "ead3edf1-b9b1-46fe-af08-89f83589b276",
+      "title": "Abstract language parser behind a trait",
+      "description": "The indexer is hardcoded to Rust/tree-sitter with no language dispatch layer. Adding JS/TS (stated intent in team memory) will require threading a trait boundary through the entire pipeline now rather than later.\n\nComponent: metroscope-indexer | Difficulty: hard",
+      "act": 1,
+      "status": "available",
+      "depends_on": [],
+      "unlocks": [],
+      "fork_ids": [],
+      "created_at": "2026-04-03T23:44:44.260172Z"
+    }
+  },
+  "forks": {},
+  "workers": {}
+}

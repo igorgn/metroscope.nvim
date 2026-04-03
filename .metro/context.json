@@ -1,11 +1,11 @@
 {
-  "current_act": 0,
-  "active_quest_id": null,
+  "current_act": 1,
+  "active_quest_id": "fe349b6c-855c-439d-89f3-dbe43b6ae193",
   "pending_fork_ids": [],
   "escalated_fork_ids": [],
   "recently_touched_files": [
     ""
   ],
   "open_questions": [],
-  "updated_at": "2026-04-03T23:36:10.800259Z"
+  "updated_at": "2026-04-03T23:44:44.261308Z"
 }

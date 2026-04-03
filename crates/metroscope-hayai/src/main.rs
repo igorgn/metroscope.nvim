@@ -1,3 +1,4 @@
+mod init;
 mod mcp;
 mod mcp_server;
 mod ollama;
@@ -45,6 +46,17 @@ enum Command {
         ollama_model: String,
     },
 
+    /// Bootstrap the skill tree from an existing Metroscope index
+    Init {
+        /// Path to the Metroscope index file
+        #[arg(long, default_value = ".metroscope/index.json")]
+        index: PathBuf,
+
+        /// Path to the .metro directory (where tree.json will be written)
+        #[arg(long, default_value = ".metro")]
+        metro_dir: PathBuf,
+    },
+
     /// Notify the server of a file change (called by the PostToolUse hook)
     NotifyChange {
         /// Changed file path
@@ -64,6 +76,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Init { index, metro_dir } => init::run(&index, &metro_dir).await,
         Command::Serve {
             metro_dir,
             port,
