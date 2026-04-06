@@ -608,6 +608,12 @@ function M.setup(opts)
   if opts.serena_dir  then config.serena_dir  = opts.serena_dir  end
   if opts.module_info then config.module_info = opts.module_info end
   if opts.prompts     then config.prompts     = opts.prompts     end
+  if opts.promptline then
+    local ok, pl = pcall(require, "promptline")
+    if ok then
+      pl.setup(opts.promptline)
+    end
+  end
   local leader = opts.leader or "<leader>m"
   vim.keymap.set("n", leader .. "s", M.open,          { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "l", M.open_stations, { desc = "Metroscope: open station list for current file" })

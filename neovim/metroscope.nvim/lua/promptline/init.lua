@@ -105,11 +105,20 @@ function M.trigger()
 		vim.api.nvim_buf_clear_namespace(sel.buf, hl_ns, 0, -1)
 	end
 
+	local default_preset_idx = 1
+	for i, p in ipairs(M.config.presets) do
+		if p.mode == M.config.default_mode then
+			default_preset_idx = i
+			break
+		end
+	end
+
 	ui.prompt({
 		title = "promptline",
 		placeholder = M.config.default_prompt,
 		width = M.config.float_width,
 		presets = M.config.presets,
+		default_preset_idx = default_preset_idx,
 	}, function(submission, float_win, float_buf)
 		local preset = M.config.presets[submission.preset_idx]
 		local mode = (preset and preset.mode) or M.config.default_mode
