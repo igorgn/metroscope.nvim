@@ -202,6 +202,7 @@ async fn index_project(
                 connections,
                 line_id: pf.file_id.clone(),
                 body_hash: func.body_hash(),
+                owner: func.owner.clone(),
             });
         }
     }

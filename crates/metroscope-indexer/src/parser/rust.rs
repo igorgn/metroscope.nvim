@@ -75,25 +75,71 @@ impl LanguageParser for RustParser {
 }
 
 fn extract_functions(source: &str, file_id: &str, root: Node) -> Result<Vec<ParsedFunction>> {
-    let query_src = r#"
+    let language: tree_sitter::Language = tree_sitter_rust::LANGUAGE.into();
+    let mut items = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+
+    // ── 1. Structs and enums ─────────────────────────────────────────────────
+    let type_query_src = r#"
+        [
+          (struct_item name: (type_identifier) @type_name) @type_def
+          (enum_item   name: (type_identifier) @type_name) @type_def
+        ]
+    "#;
+    let type_query = Query::new(&language, type_query_src).context("Failed to compile type query")?;
+    let type_def_idx = type_query.capture_index_for_name("type_def").unwrap();
+    let type_name_idx = type_query.capture_index_for_name("type_name").unwrap();
+
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(&type_query, root, source.as_bytes());
+    while let Some(m) = matches.next() {
+        let def_node = match m.captures.iter().find(|c| c.index == type_def_idx) {
+            Some(c) => c.node,
+            None => continue,
+        };
+        let name_node = match m.captures.iter().find(|c| c.index == type_name_idx) {
+            Some(c) => c.node,
+            None => continue,
+        };
+        let type_name = &source[name_node.start_byte()..name_node.end_byte()];
+        let body_text = &source[def_node.start_byte()..def_node.end_byte()];
+        let id = format!("{file_id}::{type_name}");
+        if !seen_ids.insert(id.clone()) {
+            continue;
+        }
+        let kind = if def_node.kind() == "enum_item" {
+            StationKind::Enum
+        } else {
+            StationKind::Struct
+        };
+        items.push(ParsedFunction {
+            id,
+            name: type_name.to_string(),
+            kind,
+            location: Location {
+                file: file_id.to_string(),
+                line_start: def_node.start_position().row as u32 + 1,
+                line_end: def_node.end_position().row as u32 + 1,
+            },
+            body: body_text.to_string(),
+            calls: vec![],
+            owner: None,
+        });
+    }
+
+    // ── 2. Functions and methods ─────────────────────────────────────────────
+    let fn_query_src = r#"
         (function_item
             name: (identifier) @fn_name
         ) @fn_def
     "#;
+    let fn_query = Query::new(&language, fn_query_src).context("Failed to compile fn query")?;
+    let fn_def_idx = fn_query.capture_index_for_name("fn_def").unwrap();
+    let fn_name_idx = fn_query.capture_index_for_name("fn_name").unwrap();
 
-    let language: tree_sitter::Language = tree_sitter_rust::LANGUAGE.into();
-    let query = Query::new(&language, query_src).context("Failed to compile query")?;
-
-    let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, root, source.as_bytes());
-
-    let fn_def_idx = query.capture_index_for_name("fn_def").unwrap();
-    let fn_name_idx = query.capture_index_for_name("fn_name").unwrap();
-
-    let mut functions = Vec::new();
-    let mut seen_ids = std::collections::HashSet::new();
-
-    while let Some(m) = matches.next() {
+    let mut cursor2 = QueryCursor::new();
+    let mut fn_matches = cursor2.matches(&fn_query, root, source.as_bytes());
+    while let Some(m) = fn_matches.next() {
         let def_node = match m.captures.iter().find(|c| c.index == fn_def_idx) {
             Some(c) => c.node,
             None => continue,
@@ -102,21 +148,22 @@ fn extract_functions(source: &str, file_id: &str, root: Node) -> Result<Vec<Pars
             Some(c) => c.node,
             None => continue,
         };
-
         let fn_name = &source[name_node.start_byte()..name_node.end_byte()];
         let body_text = &source[def_node.start_byte()..def_node.end_byte()];
-
         let start_line = def_node.start_position().row as u32 + 1;
         let end_line = def_node.end_position().row as u32 + 1;
 
-        // Determine if this is a method (inside an impl block)
-        let kind = if is_inside_impl(def_node) {
+        let owner = impl_type_name(def_node, source);
+        let kind = if owner.is_some() {
             StationKind::Method
         } else {
             StationKind::Function
         };
 
-        let id = format!("{file_id}::{fn_name}");
+        let id = match &owner {
+            Some(type_name) => format!("{file_id}::{type_name}::{fn_name}"),
+            None => format!("{file_id}::{fn_name}"),
+        };
 
         if !seen_ids.insert(id.clone()) {
             continue;
@@ -124,7 +171,7 @@ fn extract_functions(source: &str, file_id: &str, root: Node) -> Result<Vec<Pars
 
         let calls = extract_calls(source, def_node);
 
-        functions.push(ParsedFunction {
+        items.push(ParsedFunction {
             id,
             name: fn_name.to_string(),
             kind,
@@ -135,22 +182,32 @@ fn extract_functions(source: &str, file_id: &str, root: Node) -> Result<Vec<Pars
             },
             body: body_text.to_string(),
             calls,
+            owner,
         });
     }
 
-    functions.sort_by_key(|f| f.location.line_start);
-    Ok(functions)
+    items.sort_by_key(|f| f.location.line_start);
+    Ok(items)
 }
 
-fn is_inside_impl(node: Node) -> bool {
+/// Walk up the tree from a function node. If it's inside an `impl_item`,
+/// return the type name that impl is for.
+fn impl_type_name(node: Node, source: &str) -> Option<String> {
     let mut current = node.parent();
     while let Some(n) = current {
         if n.kind() == "impl_item" {
-            return true;
+            // The type being implemented is the first `type_identifier` child
+            for i in 0..n.child_count() {
+                let child = n.child(i)?;
+                if child.kind() == "type_identifier" {
+                    return Some(source[child.start_byte()..child.end_byte()].to_string());
+                }
+            }
+            return None;
         }
         current = n.parent();
     }
-    false
+    None
 }
 
 fn extract_calls(source: &str, fn_node: Node) -> Vec<String> {

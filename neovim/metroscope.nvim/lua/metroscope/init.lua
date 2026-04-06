@@ -602,6 +602,60 @@ function M.open_quests()
   vim.keymap.set("n", "<Esc>", close, opts)
 end
 
+-- ─── Explain mode: live float that follows the cursor ────────────────────────
+
+local explain_augroup = vim.api.nvim_create_augroup("MetroscopeExplain", { clear = true })
+local explain_mode_on = false
+
+local function explain_update()
+  if not explain_mode_on then return end
+
+  local file = vim.fn.expand("%:.")
+  local line = vim.fn.line(".")
+
+  -- On non-file buffers (e.g. the float itself), do nothing
+  if file == "" or vim.bo.buftype ~= "" then return end
+
+  local map = fetch(config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line)
+  local station_id = map and type(map.focused_station) == "string" and map.focused_station
+
+  if not station_id then
+    -- Empty line or unindexed — show blank float
+    info_mod.open_explain_float(nil, nil)
+    return
+  end
+
+  -- Same station already shown — skip the fetch
+  if info_mod.explain_station_id == station_id then return end
+
+  local station_name = station_id:match("::([^:]+)$") or station_id
+  info_mod.open_explain_float(station_id, station_name)
+end
+
+function M.peek()
+  if explain_mode_on then
+    -- Turn off: close float, clear autocmd
+    explain_mode_on = false
+    vim.api.nvim_clear_autocmds({ group = explain_augroup })
+    if info_mod.explain_win and vim.api.nvim_win_is_valid(info_mod.explain_win) then
+      vim.api.nvim_win_close(info_mod.explain_win, true)
+      info_mod.explain_win = nil
+      info_mod.explain_station_id = nil
+    end
+    vim.notify("Metroscope: explain mode off", vim.log.levels.INFO)
+  else
+    -- Turn on: register autocmd, do an immediate update
+    explain_mode_on = true
+    vim.api.nvim_create_autocmd("CursorMoved", {
+      group    = explain_augroup,
+      pattern  = "*",
+      callback = explain_update,
+    })
+    explain_update()
+    vim.notify("Metroscope: explain mode on", vim.log.levels.INFO)
+  end
+end
+
 function M.setup(opts)
   opts = opts or {}
   if opts.server      then config.server      = opts.server      end
@@ -627,6 +681,7 @@ function M.setup(opts)
   vim.keymap.set("n", leader .. "i", function()
     M.index(vim.fn.getcwd(), vim.env.ANTHROPIC_API_KEY)
   end, { desc = "Metroscope: re-index" })
+  vim.keymap.set("n", leader .. "k", M.peek, { desc = "Metroscope: peek explanation at cursor" })
 end
 
 return M

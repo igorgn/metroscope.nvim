@@ -51,7 +51,7 @@ pub fn router(state: Arc<AppState>) -> Router {
 async fn manifest() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "name": "hayai",
-        "version": "0.1.0",
+        "vrsion": "0.1.0",
         "description": "Skill tree orchestrator for Metroscope. Tracks quests, forks, and workers across a coding session.",
         "tools": [
             { "name": "get_context",            "description": "Current act, active quest, pending forks. Call this at session start.",           "endpoint": "GET /context" },

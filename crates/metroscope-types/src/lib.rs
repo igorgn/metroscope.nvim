@@ -56,7 +56,7 @@ pub struct Connection {
     pub kind: ConnectionKind,
 }
 
-/// A Station represents a single function/method/struct in the codebase.
+/// A Station represents a single function/method/struct/enum in the codebase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Station {
     /// Unique id: "relative/path/to/file.rs::symbol_name"
@@ -74,6 +74,9 @@ pub struct Station {
     /// FNV-1a hash of the function body — used for incremental re-indexing
     #[serde(default)]
     pub body_hash: String,
+    /// For methods: the name of the struct/enum this method belongs to
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 /// A Line represents a file/module in the codebase.

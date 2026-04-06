@@ -21,24 +21,17 @@ end
 
 
 function M.fetch_context(buf, line)
-	local bufname = vim.api.nvim_buf_get_name(buf)
-	if bufname == "" then
-		return nil
-	end
+	-- Use relative path (same as what the index stores)
+	local file = vim.fn.expand("#" .. buf .. ":.")
+	if file == "" then return nil end
 
 	local base = "http://localhost:" .. M.port
-
-	-- Step 1: resolve the station at file+line
-	local file_enc = bufname:gsub("([^%w%-_%.~])", function(c)
-		return string.format("%%%02X", string.byte(c))
-	end)
-	local map = get(base .. "/map?file=" .. file_enc .. "&line=" .. line)
+	local map = get(base .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line)
 	if not map then
 		return nil
 	end
 
-	local fs = map.focused_station
-	local station_id = type(fs) == "table" and fs.id
+	local station_id = type(map.focused_station) == "string" and map.focused_station
 	if not station_id then
 		return nil
 	end

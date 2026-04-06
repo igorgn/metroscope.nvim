@@ -3,7 +3,7 @@ pub mod rust;
 use anyhow::Result;
 use metroscope_types::{Location, StationKind};
 
-/// A parsed function extracted from source.
+/// A parsed function/method/struct/enum extracted from source.
 #[derive(Debug, Clone)]
 pub struct ParsedFunction {
     pub id: String,
@@ -11,9 +11,10 @@ pub struct ParsedFunction {
     pub kind: StationKind,
     pub location: Location,
     pub body: String,
-    /// raw source text of the function body (for llm summarization)
-    /// Names of functions this function calls (best-effort)
+    /// Names of functions/methods this item calls (best-effort, empty for structs/enums)
     pub calls: Vec<String>,
+    /// For methods: the struct/enum name they belong to
+    pub owner: Option<String>,
 }
 
 impl ParsedFunction {
