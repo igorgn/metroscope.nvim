@@ -51,8 +51,7 @@ pub async fn run(index_path: &Path, metro_dir: &Path) -> Result<()> {
         .await
         .with_context(|| format!("Could not read {:?} — run the indexer first", index_path))?;
 
-    let index: MetroIndex =
-        serde_json::from_slice(&raw).context("Failed to parse index.json")?;
+    let index: MetroIndex = serde_json::from_slice(&raw).context("Failed to parse index.json")?;
 
     let store = Store::load(metro_dir).await?;
 
@@ -122,9 +121,7 @@ pub async fn run(index_path: &Path, metro_dir: &Path) -> Result<()> {
     }
     store.save_context().await?;
 
-    store
-        .append_log(StateEvent::ReIndexed)
-        .await?;
+    store.append_log(StateEvent::ReIndexed).await?;
 
     println!(
         "Bootstrapped Act 1 with {} quests from the Metroscope index.",

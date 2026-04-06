@@ -31,7 +31,11 @@ pub enum ConnectionKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum QuestDifficulty { Easy, Medium, Hard }
+pub enum QuestDifficulty {
+    Easy,
+    Medium,
+    Hard,
+}
 
 /// An architectural improvement suggestion generated at index time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,9 +111,7 @@ impl Index {
     /// Find the station at the given file and line number.
     pub fn station_at(&self, file: &str, line: u32) -> Option<&Station> {
         self.stations.values().find(|s| {
-            s.location.file == file
-                && s.location.line_start <= line
-                && line <= s.location.line_end
+            s.location.file == file && s.location.line_start <= line && line <= s.location.line_end
         })
     }
 }
