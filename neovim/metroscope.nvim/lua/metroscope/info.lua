@@ -12,8 +12,51 @@ local CROSS_SYM = st.CROSS_SYM
 
 local M = {}
 
-M.info_win = nil
-M.explain_win = nil
+M.info_win        = nil
+M.explain_win     = nil
+M.explain_dim_win = nil
+
+local function open_dim()
+  if not config.background_dim_on_explain then return end
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = "wipe"
+  local lines = {}
+  for _ = 1, vim.o.lines do
+    table.insert(lines, string.rep(" ", vim.o.columns))
+  end
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  local w = vim.api.nvim_open_win(buf, false, {
+    relative  = "editor",
+    width     = vim.o.columns,
+    height    = vim.o.lines,
+    row       = 0,
+    col       = 0,
+    style     = "minimal",
+    border    = "none",
+    zindex    = 79,
+    focusable = false,
+  })
+  vim.api.nvim_set_hl(0, "MetroscopeDim", { bg = "#000000", fg = "#000000" })
+  vim.wo[w].winhl    = "Normal:MetroscopeDim"
+  vim.wo[w].winblend = 60
+  M.explain_dim_win = w
+end
+
+local function close_dim()
+  if M.explain_dim_win and vim.api.nvim_win_is_valid(M.explain_dim_win) then
+    vim.api.nvim_win_close(M.explain_dim_win, true)
+  end
+  M.explain_dim_win = nil
+end
+
+function M.close_explain()
+  close_dim()
+  if M.explain_win and vim.api.nvim_win_is_valid(M.explain_win) then
+    vim.api.nvim_win_close(M.explain_win, true)
+  end
+  M.explain_win = nil
+  M.explain_station_id = nil
+end
 
 function M.close_info()
 	if M.info_win and vim.api.nvim_win_is_valid(M.info_win) then
@@ -235,7 +278,7 @@ function M.open_info_popup(title, rows, W, jump_targets, on_close_cb, station_id
 		title = "  " .. title .. "  ",
 		title_pos = "center",
 		focusable = true,
-		zindex = 100,
+		zindex = 70,
 	})
 
 	local info_ns = vim.api.nvim_create_namespace("metroscope_info")
@@ -416,6 +459,7 @@ function M.open_explain_float(station_id, station_name)
 	local win_width = vim.api.nvim_win_get_width(0)
 	local row = math.max(0, math.floor((win_height - H) / 2))
 	local col = math.max(0, math.floor((win_width - W) / 2))
+	open_dim()
 	M.explain_win = vim.api.nvim_open_win(buf, false, {
 		relative = "win",
 		win = 0,
@@ -430,13 +474,14 @@ function M.open_explain_float(station_id, station_name)
 		title_pos = "center",
 		footer = "  y:yank  q/<Esc>:close  ",
 		footer_pos = "center",
-		zindex = 150,
+		zindex = 80,
 		focusable = false,
 	})
 	M.explain_station_id = station_id
 
 	local opts = { buffer = buf, nowait = true, silent = true }
 	local function close()
+		close_dim()
 		if M.explain_win and vim.api.nvim_win_is_valid(M.explain_win) then
 			vim.api.nvim_win_close(M.explain_win, true)
 		end

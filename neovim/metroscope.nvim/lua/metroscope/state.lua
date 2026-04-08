@@ -6,6 +6,7 @@ M.config = {
 	server = "http://127.0.0.1:7777",
 	serena_dir = nil,
 	module_info = "detailed", -- "detailed" | "compact"
+	background_dim_on_explain = true,
 	prompts = {
 		functions = nil,
 		file = nil,

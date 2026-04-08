@@ -113,7 +113,7 @@ function M.sl_update_list()
 	end
 end
 
-function M.zoom_to_stations(line, close_all_fn)
+function M.zoom_to_stations(line, close_all_fn, explain_off_fn)
 	info_mod.close_info() -- dismiss any open info popup before entering station list
 
 	local stations = {}
@@ -133,7 +133,6 @@ function M.zoom_to_stations(line, close_all_fn)
 	state.sl_stations = stations
 	state.sl_idx = 1
 
-	-- Leave map window open (floats can't be hidden, station list zindex is higher)
 
 	local total_w = math.floor(vim.o.columns * 0.90)
 	local height = math.floor(vim.o.lines * 0.75)
@@ -158,7 +157,7 @@ function M.zoom_to_stations(line, close_all_fn)
 		title_pos = "center",
 		footer = "  j/k:move  e:explain  <Tab>:preview  C-f/b:scroll  <CR>:jump  b:back  q:close  ",
 		footer_pos = "center",
-		zindex = 50,
+		zindex = 60,
 	})
 	vim.wo[lw].wrap = false
 	vim.wo[lw].cursorline = false
@@ -178,7 +177,7 @@ function M.zoom_to_stations(line, close_all_fn)
 		border = "rounded",
 		title = "  preview  ",
 		title_pos = "center",
-		zindex = 50,
+		zindex = 60,
 	})
 	vim.wo[pw].wrap = false
 	vim.wo[pw].cursorline = true
@@ -254,6 +253,7 @@ function M.zoom_to_stations(line, close_all_fn)
 	local function sl_back()
 		pcall(vim.api.nvim_del_augroup_by_name, "MetroscopeSLGuard")
 		state.zoom = "functions"
+		if explain_off_fn then explain_off_fn() else info_mod.close_explain() end
 		M.close_station_list()
 		if state.win and vim.api.nvim_win_is_valid(state.win) then
 			vim.api.nvim_set_current_win(state.win)
@@ -292,18 +292,16 @@ function M.zoom_to_stations(line, close_all_fn)
 	map("<C-b>", function()
 		scroll_preview("\2")
 	end)
-	map("q", function()
+	local function sl_close()
+		if explain_off_fn then explain_off_fn() else info_mod.close_explain() end
 		M.close_station_list()
 		if close_all_fn then
 			close_all_fn()
 		end
-	end)
-	map("<Esc>", function()
-		M.close_station_list()
-		if close_all_fn then
-			close_all_fn()
-		end
-	end)
+	end
+
+	map("q",     sl_close)
+	map("<Esc>", sl_close)
 
 	-- Store keymaps so sl_update_preview re-applies them on every new buffer swap
 	state.sl_prev_keymaps = {
@@ -311,18 +309,8 @@ function M.zoom_to_stations(line, close_all_fn)
 		["e"] = sl_explain,
 		["b"] = sl_back,
 		["<CR>"] = sl_jump,
-		["q"] = function()
-			M.close_station_list()
-			if close_all_fn then
-				close_all_fn()
-			end
-		end,
-		["<Esc>"] = function()
-			M.close_station_list()
-			if close_all_fn then
-				close_all_fn()
-			end
-		end,
+		["q"]     = sl_close,
+		["<Esc>"] = sl_close,
 	}
 	for key, fn in pairs(state.sl_prev_keymaps) do
 		pmap(key, fn)

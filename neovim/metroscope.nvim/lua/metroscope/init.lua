@@ -159,7 +159,7 @@ local function set_keymaps(buf)
     elseif state.zoom == "functions" then
       local line = state.data and state.data.lines and state.data.lines[state.line_idx]
       if line and #line.stations > 0 then
-        sl_mod.zoom_to_stations(line, M.close)
+        sl_mod.zoom_to_stations(line, M.close, M.explain_off)
       end
     end
   end)
@@ -187,6 +187,7 @@ function M.close()
 end
 
 function M.open()
+  M.explain_off()
   local file = vim.fn.expand("%:.")
   local line = vim.fn.line(".")
 
@@ -266,6 +267,7 @@ end
 -- Open directly into the station list for the current file's line,
 -- skipping the function map view entirely.
 function M.open_stations()
+  M.explain_off()
   local file = vim.fn.expand("%:.")
   local line = vim.fn.line(".")
   local has_file = file ~= "" and vim.bo.buftype == ""
@@ -357,6 +359,7 @@ function M.index(project_root, api_key)
 end
 
 function M.open_quests()
+  M.explain_off()
   local quests = fetch(config.server .. "/quests")
   if not quests or type(quests) ~= "table" then
     vim.notify("Metroscope: could not fetch quests", vim.log.levels.ERROR)
@@ -451,7 +454,7 @@ function M.open_quests()
     title_pos  = "center",
     footer     = "  j/k:move  x:execute  q/<Esc>:close  ",
     footer_pos = "center",
-    zindex     = 150,
+    zindex     = 70,
   })
   vim.wo[win].wrap = true
 
@@ -507,7 +510,7 @@ function M.open_quests()
       border     = "rounded",
       title      = "  Launch workspace  ",
       title_pos  = "center",
-      zindex     = 200,
+      zindex     = 75,
     })
 
     local function pick_close() vim.api.nvim_win_close(pick_win, true) end
@@ -632,19 +635,18 @@ local function explain_update()
   info_mod.open_explain_float(station_id, station_name)
 end
 
+function M.explain_off()
+  if not explain_mode_on then return end
+  explain_mode_on = false
+  vim.api.nvim_clear_autocmds({ group = explain_augroup })
+  info_mod.close_explain()
+end
+
 function M.peek()
   if explain_mode_on then
-    -- Turn off: close float, clear autocmd
-    explain_mode_on = false
-    vim.api.nvim_clear_autocmds({ group = explain_augroup })
-    if info_mod.explain_win and vim.api.nvim_win_is_valid(info_mod.explain_win) then
-      vim.api.nvim_win_close(info_mod.explain_win, true)
-      info_mod.explain_win = nil
-      info_mod.explain_station_id = nil
-    end
+    M.explain_off()
     vim.notify("Metroscope: explain mode off", vim.log.levels.INFO)
   else
-    -- Turn on: register autocmd, do an immediate update
     explain_mode_on = true
     vim.api.nvim_create_autocmd("CursorMoved", {
       group    = explain_augroup,
@@ -662,6 +664,7 @@ function M.setup(opts)
   if opts.serena_dir  then config.serena_dir  = opts.serena_dir  end
   if opts.module_info then config.module_info = opts.module_info end
   if opts.prompts     then config.prompts     = opts.prompts     end
+  if opts.background_dim_on_explain ~= nil then config.background_dim_on_explain = opts.background_dim_on_explain end
   if opts.promptline then
     local ok, pl = pcall(require, "promptline")
     if ok then
