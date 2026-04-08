@@ -19,7 +19,9 @@ function M.word_wrap(s, w)
     table.insert(lines, cut)
     s = vim.trim(s:sub(#cut + 1))
   end
-  if s ~= "" then table.insert(lines, s) end
+  if s ~= "" then
+    table.insert(lines, s)
+  end
   return lines
 end
 
@@ -37,7 +39,9 @@ end
 function M.jump_to_file(abs_file, lnum)
   lnum = math.max(1, lnum or 1)
   local w = M.find_edit_win()
-  if w then vim.api.nvim_set_current_win(w) end
+  if w then
+    vim.api.nvim_set_current_win(w)
+  end
   vim.cmd("edit " .. vim.fn.fnameescape(abs_file))
   vim.schedule(function()
     local max = vim.api.nvim_buf_line_count(0)

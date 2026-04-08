@@ -17,12 +17,7 @@ function M.replace_selection(buf, start_line, start_col, end_line, end_col, new_
   local end_line_content = vim.api.nvim_buf_get_lines(buf, end_line - 1, end_line, false)[1] or ""
   end_col = math.min(end_col, #end_line_content)
 
-  vim.api.nvim_buf_set_text(
-    buf,
-    start_line - 1, start_col,
-    end_line - 1, end_col,
-    lines
-  )
+  vim.api.nvim_buf_set_text(buf, start_line - 1, start_col, end_line - 1, end_col, lines)
 end
 
 return M

@@ -44,9 +44,7 @@ local function build_prompt(config, selection, user_prompt, diagnostics, metro_c
     prompt = prompt .. "\n\n" .. metro_context
   end
 
-  prompt = prompt
-    .. "\n\nHere is the text to edit:\n"
-    .. selection
+  prompt = prompt .. "\n\nHere is the text to edit:\n" .. selection
 
   if diagnostics then
     prompt = prompt .. "\n\nThe following LSP diagnostics (errors/warnings) apply to this code:\n" .. diagnostics
@@ -65,9 +63,11 @@ function M.run_claude_cli(config, selection, user_prompt, diagnostics, metro_con
 
   local cmd = {
     "claude",
-    "--no-session-persistence",  -- don't save this call to session history
-    "-p", prompt,
-    "--output-format", "text",
+    "--no-session-persistence", -- don't save this call to session history
+    "-p",
+    prompt,
+    "--output-format",
+    "text",
   }
 
   run_async(cmd, on_done)
@@ -96,12 +96,19 @@ function M.run_anthropic_api(config, selection, user_prompt, diagnostics, metro_
   f:close()
 
   local cmd = {
-    "curl", "-s", "-X", "POST",
+    "curl",
+    "-s",
+    "-X",
+    "POST",
     "https://api.anthropic.com/v1/messages",
-    "-H", "Content-Type: application/json",
-    "-H", "x-api-key: " .. api_key,
-    "-H", "anthropic-version: 2023-06-01",
-    "-d", "@" .. tmpfile,
+    "-H",
+    "Content-Type: application/json",
+    "-H",
+    "x-api-key: " .. api_key,
+    "-H",
+    "anthropic-version: 2023-06-01",
+    "-d",
+    "@" .. tmpfile,
   }
 
   run_async(cmd, function(output, err)

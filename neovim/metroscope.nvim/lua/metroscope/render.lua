@@ -1,12 +1,12 @@
 -- Rendering: box drawing, map and module map rendering
 
-local st    = require("metroscope.state")
-local util  = require("metroscope.util")
+local st = require("metroscope.state")
+local util = require("metroscope.util")
 
-local state     = st.state
-local LABEL_W   = st.LABEL_W
-local PAD       = st.PAD
-local BOX_MIN   = st.BOX_MIN
+local state = st.state
+local LABEL_W = st.LABEL_W
+local PAD = st.PAD
+local BOX_MIN = st.BOX_MIN
 local CROSS_SYM = st.CROSS_SYM
 local ROWS_PER_LINE = st.ROWS_PER_LINE
 
@@ -34,13 +34,15 @@ function M.box(name, focused, cross)
       "╔" .. string.rep("═", inner) .. "╗",
       "║" .. pad_l .. label .. pad_r .. "║",
       "╚" .. string.rep("═", inner) .. "╝",
-    }, inner + 2
+    },
+      inner + 2
   else
     return {
       "┌" .. string.rep("─", inner) .. "┐",
       "│" .. pad_l .. label .. pad_r .. "│",
       "└" .. string.rep("─", inner) .. "┘",
-    }, inner + 2
+    },
+      inner + 2
   end
 end
 
@@ -51,7 +53,9 @@ local function crate_id_of(file_id)
 end
 
 function M.render_map(data)
-  if not data or not data.lines then return {} end
+  if not data or not data.lines then
+    return {}
+  end
 
   local out = {}
 
@@ -84,8 +88,8 @@ function M.render_map(data)
         widths[si] = w
       end
 
-      local lead    = 2
-      local indent  = string.rep(" ", LABEL_W + 1 + lead)
+      local lead = 2
+      local indent = string.rep(" ", LABEL_W + 1 + lead)
       local top_row = indent
       local mid_row = label .. " " .. util.dashes(lead)
       local bot_row = indent
@@ -112,22 +116,26 @@ function M.render_map(data)
 end
 
 function M.render_module_map(data)
-  if not data or not data.modules then return {} end
+  if not data or not data.modules then
+    return {}
+  end
 
   local modules = data.modules
   local out = {}
 
   local mod_idx = {}
-  for i, m in ipairs(modules) do mod_idx[m.id] = i end
+  for i, m in ipairs(modules) do
+    mod_idx[m.id] = i
+  end
 
   for mi, m in ipairs(modules) do
     local focused = (state.zoom == "modules" and state.line_idx == mi)
-    local label   = util.pad_right("[" .. m.name .. "]", LABEL_W)
-    local count   = "(" .. m.station_count .. ")"
-    local b, _    = M.box(m.name .. "  " .. count, focused, #m.calls_into > 0)
+    local label = util.pad_right("[" .. m.name .. "]", LABEL_W)
+    local count = "(" .. m.station_count .. ")"
+    local b, _ = M.box(m.name .. "  " .. count, focused, #m.calls_into > 0)
 
-    local lead    = 2
-    local indent  = string.rep(" ", LABEL_W + 1 + lead)
+    local lead = 2
+    local indent = string.rep(" ", LABEL_W + 1 + lead)
     local top_row = indent .. b[1]
     local mid_row = label .. " " .. util.dashes(lead) .. b[2]
     local bot_row = indent .. b[3]
@@ -136,15 +144,16 @@ function M.render_module_map(data)
     for _, target_id in ipairs(m.calls_into) do
       local ti = mod_idx[target_id]
       if ti and ti > mi then
-        table.insert(conn_rows, indent .. "│  calls → " ..
-          (modules[ti] and modules[ti].name or target_id))
+        table.insert(conn_rows, indent .. "│  calls → " .. (modules[ti] and modules[ti].name or target_id))
       end
     end
 
     table.insert(out, top_row)
     table.insert(out, mid_row)
     table.insert(out, bot_row)
-    for _, cr in ipairs(conn_rows) do table.insert(out, cr) end
+    for _, cr in ipairs(conn_rows) do
+      table.insert(out, cr)
+    end
     table.insert(out, "")
   end
 

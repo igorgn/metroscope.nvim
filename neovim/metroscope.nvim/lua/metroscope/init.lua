@@ -1,15 +1,15 @@
 -- metroscope.nvim — thin orchestrator
 -- Visualize a codebase as an interactive metro map.
 
-local st       = require("metroscope.state")
-local render   = require("metroscope.render")
-local hl       = require("metroscope.highlights")
-local win_mod  = require("metroscope.window")
+local st = require("metroscope.state")
+local render = require("metroscope.render")
+local hl = require("metroscope.highlights")
+local win_mod = require("metroscope.window")
 local info_mod = require("metroscope.info")
-local nav      = require("metroscope.navigation")
-local sl_mod   = require("metroscope.stations")
+local nav = require("metroscope.navigation")
+local sl_mod = require("metroscope.stations")
 
-local state  = st.state
+local state = st.state
 local config = st.config
 local ROWS_PER_LINE = st.ROWS_PER_LINE
 
@@ -19,10 +19,14 @@ local M = {}
 
 local function fetch(url)
   local handle = io.popen('curl -s --max-time 2 "' .. url .. '"')
-  if not handle then return nil end
+  if not handle then
+    return nil
+  end
   local result = handle:read("*a")
   handle:close()
-  if not result or result == "" then return nil end
+  if not result or result == "" then
+    return nil
+  end
   local ok, decoded = pcall(vim.json.decode, result)
   return ok and decoded or nil
 end
@@ -31,7 +35,9 @@ end
 
 local function fetch_quest_counts()
   local quests = fetch(config.server .. "/quests")
-  if not quests or type(quests) ~= "table" then return end
+  if not quests or type(quests) ~= "table" then
+    return
+  end
   local counts = {}
   for _, q in ipairs(quests) do
     local comp = q.component or "system"
@@ -43,12 +49,12 @@ end
 -- ─── Redraw ───────────────────────────────────────────────────────────────────
 
 local function redraw()
-  if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then return end
+  if not state.buf or not vim.api.nvim_buf_is_valid(state.buf) then
+    return
+  end
 
   hl.setup()
-  local rendered = state.zoom == "modules"
-    and render.render_module_map(state.data)
-    or  render.render_map(state.data)
+  local rendered = state.zoom == "modules" and render.render_module_map(state.data) or render.render_map(state.data)
 
   vim.bo[state.buf].modifiable = true
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, rendered)
@@ -81,14 +87,14 @@ local function zoom_to_modules()
     vim.notify("Metroscope: could not fetch module map", vim.log.levels.ERROR)
     return
   end
-  state.zoom         = "modules"
-  state.data         = data
+  state.zoom = "modules"
+  state.data = data
   state.crate_filter = nil
-  state.line_idx     = 1
-  state.station_idx  = 1
+  state.line_idx = 1
+  state.station_idx = 1
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_set_config(state.win, {
-      footer     = "  i:info  <CR>:components  j/k:move  q:close  ",
+      footer = "  i:info  <CR>:components  j/k:move  q:close  ",
       footer_pos = "center",
     })
   end
@@ -96,18 +102,22 @@ local function zoom_to_modules()
 end
 
 local function zoom_to_functions(crate_id)
-  local url  = config.server .. "/map?crate=" .. vim.uri_encode(crate_id)
+  local url = config.server .. "/map?crate=" .. vim.uri_encode(crate_id)
   local data = fetch(url)
-  if not data then return end
-  state.zoom         = "functions"
-  state.data         = data
+  if not data then
+    return
+  end
+  state.zoom = "functions"
+  state.data = data
   state.crate_filter = crate_id
-  state.line_idx     = 1
-  state.station_idx  = 1
-  if data.project_root then state.project_root = data.project_root end
+  state.line_idx = 1
+  state.station_idx = 1
+  if data.project_root then
+    state.project_root = data.project_root
+  end
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_set_config(state.win, {
-      footer     = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
+      footer = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
       footer_pos = "center",
     })
   end
@@ -155,7 +165,9 @@ local function set_keymaps(buf)
   map("<CR>", function()
     if state.zoom == "modules" then
       local m = state.data and state.data.modules and state.data.modules[state.line_idx]
-      if m then zoom_to_functions(m.id) end
+      if m then
+        zoom_to_functions(m.id)
+      end
     elseif state.zoom == "functions" then
       local line = state.data and state.data.lines and state.data.lines[state.line_idx]
       if line and #line.stations > 0 then
@@ -164,7 +176,7 @@ local function set_keymaps(buf)
     end
   end)
 
-  map("q",     M.close)
+  map("q", M.close)
   map("<Esc>", M.close)
 end
 
@@ -181,8 +193,8 @@ function M.close()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
-  state.buf  = nil
-  state.win  = nil
+  state.buf = nil
+  state.win = nil
   state.zoom = "functions"
 end
 
@@ -194,9 +206,8 @@ function M.open()
   -- Determine if current buffer has a real file
   local has_file = file ~= "" and vim.bo.buftype == ""
 
-  local url = has_file
-    and (config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line)
-    or  (config.server .. "/map")
+  local url = has_file and (config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line)
+    or (config.server .. "/map")
 
   local data = fetch(url)
   if not data then
@@ -209,7 +220,7 @@ function M.open()
   fetch_quest_counts()
 
   hl.setup()
-  state.dim_win        = win_mod.open_dim_win()
+  state.dim_win = win_mod.open_dim_win()
   state.buf, state.win = win_mod.open_window()
   set_keymaps(state.buf)
 
@@ -217,22 +228,24 @@ function M.open()
   -- function view directly. Otherwise fall back to the module map.
   if has_file and type(data.focused_crate) == "string" and data.focused_crate ~= "root" then
     -- Drill straight into the crate, then position cursor on the focused station
-    local crate_url  = config.server .. "/map?crate=" .. vim.uri_encode(data.focused_crate)
+    local crate_url = config.server .. "/map?crate=" .. vim.uri_encode(data.focused_crate)
     local crate_data = fetch(crate_url)
     if crate_data then
-      state.data         = crate_data
-      state.zoom         = "functions"
+      state.data = crate_data
+      state.zoom = "functions"
       state.crate_filter = data.focused_crate
-      state.line_idx     = 1
-      state.station_idx  = 1
-      if crate_data.project_root then state.project_root = crate_data.project_root end
+      state.line_idx = 1
+      state.station_idx = 1
+      if crate_data.project_root then
+        state.project_root = crate_data.project_root
+      end
 
       -- Position cursor on focused station within the crate view
       if data.focused_station then
         for li, ld in ipairs(crate_data.lines or {}) do
           for si, s in ipairs(ld.stations) do
             if s.id == data.focused_station then
-              state.line_idx    = li
+              state.line_idx = li
               state.station_idx = si
             end
           end
@@ -240,7 +253,7 @@ function M.open()
       end
 
       vim.api.nvim_win_set_config(state.win, {
-        footer     = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
+        footer = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
         footer_pos = "center",
       })
       redraw()
@@ -251,13 +264,13 @@ function M.open()
   -- Fallback: module map (no file, unknown crate, or crate fetch failed)
   local mod_data = fetch(config.server .. "/module-map")
   if mod_data then
-    state.data         = mod_data
-    state.zoom         = "modules"
+    state.data = mod_data
+    state.zoom = "modules"
     state.crate_filter = nil
-    state.line_idx     = 1
-    state.station_idx  = 1
+    state.line_idx = 1
+    state.station_idx = 1
     vim.api.nvim_win_set_config(state.win, {
-      footer     = "  i:info  <CR>:components  j/k:move  q:close  ",
+      footer = "  i:info  <CR>:components  j/k:move  q:close  ",
       footer_pos = "center",
     })
     redraw()
@@ -276,7 +289,7 @@ function M.open_stations()
     return
   end
 
-  local url  = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line
+  local url = config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line
   local data = fetch(url)
   if not data then
     vim.notify("Metroscope: server not reachable at " .. config.server, vim.log.levels.ERROR)
@@ -291,17 +304,19 @@ function M.open_stations()
     return
   end
 
-  local crate_url  = config.server .. "/map?crate=" .. vim.uri_encode(data.focused_crate)
+  local crate_url = config.server .. "/map?crate=" .. vim.uri_encode(data.focused_crate)
   local crate_data = fetch(crate_url)
   if not crate_data then
     vim.notify("Metroscope: could not fetch crate map", vim.log.levels.ERROR)
     return
   end
 
-  state.data         = crate_data
-  state.zoom         = "functions"
+  state.data = crate_data
+  state.zoom = "functions"
   state.crate_filter = data.focused_crate
-  if crate_data.project_root then state.project_root = crate_data.project_root end
+  if crate_data.project_root then
+    state.project_root = crate_data.project_root
+  end
 
   -- Find the line that contains the focused station
   local target_line_idx = 1
@@ -315,14 +330,14 @@ function M.open_stations()
       end
     end
   end
-  state.line_idx    = target_line_idx
+  state.line_idx = target_line_idx
   state.station_idx = 1
 
   fetch_quest_counts()
 
   -- Open map window (hidden immediately — stations view takes over)
   hl.setup()
-  state.dim_win        = win_mod.open_dim_win()
+  state.dim_win = win_mod.open_dim_win()
   state.buf, state.win = win_mod.open_window()
   set_keymaps(state.buf)
 
@@ -330,7 +345,7 @@ function M.open_stations()
   if not target_line or #target_line.stations == 0 then
     -- Fallback: show the map normally
     vim.api.nvim_win_set_config(state.win, {
-      footer     = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
+      footer = "  i:info  <CR>:stations  h/l:move  j/k:line  b:modules  q:close  ",
       footer_pos = "center",
     })
     redraw()
@@ -342,7 +357,7 @@ end
 
 function M.index(project_root, api_key)
   project_root = project_root or vim.fn.getcwd()
-  api_key      = api_key or vim.env.ANTHROPIC_API_KEY or ""
+  api_key = api_key or vim.env.ANTHROPIC_API_KEY or ""
   local cmd = string.format(
     "metroscope-indexer index %s --api-key %s",
     vim.fn.shellescape(project_root),
@@ -352,9 +367,15 @@ function M.index(project_root, api_key)
     cmd = cmd .. " --serena-dir " .. vim.fn.shellescape(config.serena_dir)
   end
   local p = config.prompts or {}
-  if p.functions then cmd = cmd .. " --function-prompt " .. vim.fn.shellescape(p.functions) end
-  if p.file      then cmd = cmd .. " --file-prompt "     .. vim.fn.shellescape(p.file)      end
-  if p.system    then cmd = cmd .. " --system-prompt "   .. vim.fn.shellescape(p.system)    end
+  if p.functions then
+    cmd = cmd .. " --function-prompt " .. vim.fn.shellescape(p.functions)
+  end
+  if p.file then
+    cmd = cmd .. " --file-prompt " .. vim.fn.shellescape(p.file)
+  end
+  if p.system then
+    cmd = cmd .. " --system-prompt " .. vim.fn.shellescape(p.system)
+  end
   vim.cmd("botright 15split | terminal " .. cmd)
 end
 
@@ -371,12 +392,12 @@ function M.open_quests()
   end
 
   -- Highlight groups
-  vim.api.nvim_set_hl(0, "MetroscopeQuestEasy",   { fg = "#22c55e", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestEasy", { fg = "#22c55e", bold = true })
   vim.api.nvim_set_hl(0, "MetroscopeQuestMedium", { fg = "#f59e0b", bold = true })
-  vim.api.nvim_set_hl(0, "MetroscopeQuestHard",   { fg = "#ef4444", bold = true })
-  vim.api.nvim_set_hl(0, "MetroscopeQuestTitle",  { fg = "#f1f5f9", bold = true })
-  vim.api.nvim_set_hl(0, "MetroscopeQuestComp",   { fg = "#64748b" })
-  vim.api.nvim_set_hl(0, "MetroscopeQuestWhy",    { fg = "#94a3b8" })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestHard", { fg = "#ef4444", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestTitle", { fg = "#f1f5f9", bold = true })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestComp", { fg = "#64748b" })
+  vim.api.nvim_set_hl(0, "MetroscopeQuestWhy", { fg = "#94a3b8" })
 
   local W = 68
   local util = require("metroscope.util")
@@ -389,7 +410,9 @@ function M.open_quests()
     local hl_marks = {}
     local function push(text, hl_group)
       table.insert(rows, text)
-      if hl_group then hl_marks[#rows] = hl_group end
+      if hl_group then
+        hl_marks[#rows] = hl_group
+      end
     end
 
     push("  Architectural Quests", "MetroscopeQuestTitle")
@@ -398,11 +421,11 @@ function M.open_quests()
 
     for i, q in ipairs(quests) do
       local diff_hl = q.difficulty == "easy" and "MetroscopeQuestEasy"
-                 or  q.difficulty == "hard"  and "MetroscopeQuestHard"
-                 or  "MetroscopeQuestMedium"
+        or q.difficulty == "hard" and "MetroscopeQuestHard"
+        or "MetroscopeQuestMedium"
       local badge = q.difficulty == "easy" and "[Easy]" or q.difficulty == "hard" and "[Hard]" or "[Medium]"
       local arrow = (i == cursor_idx) and "▶ " or "  "
-      quest_lines[i] = #rows + 1  -- row this quest starts on (1-based)
+      quest_lines[i] = #rows + 1 -- row this quest starts on (1-based)
       push(arrow .. badge .. "  " .. (q.component or "system"), diff_hl)
       push("  " .. (q.title or ""), "MetroscopeQuestTitle")
       for _, wl in ipairs(util.word_wrap(q.why or "", W - 4)) do
@@ -438,32 +461,36 @@ function M.open_quests()
   local ecol = math.floor((vim.o.columns - W) / 2)
 
   local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].buftype   = "nofile"
+  vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"
   render_into(buf, rows, hl_marks)
 
   local win = vim.api.nvim_open_win(buf, true, {
-    relative   = "editor",
-    width      = W,
-    height     = H,
-    row        = erow,
-    col        = ecol,
-    style      = "minimal",
-    border     = "rounded",
-    title      = "  ⚔ Quests  ",
-    title_pos  = "center",
-    footer     = "  j/k:move  x:execute  q/<Esc>:close  ",
+    relative = "editor",
+    width = W,
+    height = H,
+    row = erow,
+    col = ecol,
+    style = "minimal",
+    border = "rounded",
+    title = "  ⚔ Quests  ",
+    title_pos = "center",
+    footer = "  j/k:move  x:execute  q/<Esc>:close  ",
     footer_pos = "center",
-    zindex     = 70,
+    zindex = 70,
   })
   vim.wo[win].wrap = true
 
   local opts = { buffer = buf, nowait = true, silent = true }
-  local function close() vim.api.nvim_win_close(win, true) end
+  local function close()
+    vim.api.nvim_win_close(win, true)
+  end
 
   local function move(delta)
     local new_idx = math.max(1, math.min(#quests, cursor_idx + delta))
-    if new_idx == cursor_idx then return end
+    if new_idx == cursor_idx then
+      return
+    end
     cursor_idx = new_idx
     local r, h = build_rows(cursor_idx)
     render_into(buf, r, h)
@@ -473,27 +500,35 @@ function M.open_quests()
 
   local function execute_quest()
     local q = quests[cursor_idx]
-    if not q then return end
+    if not q then
+      return
+    end
 
     local prompt = string.format(
       "Implement this architectural improvement for the %s component:\n\n%s\n\n%s",
-      q.component or "system", q.title or "", q.why or ""
+      q.component or "system",
+      q.title or "",
+      q.why or ""
     )
     prompt = prompt:gsub("'", "'\\''")
     local flag = (q.difficulty == "hard") and " --plan" or ""
 
-    local has_jj  = vim.fn.executable("jj")  == 1
+    local has_jj = vim.fn.executable("jj") == 1
     local has_git = vim.fn.executable("git") == 1
 
     -- Build workspace options for the picker
     local choices = { "1. Run in current directory" }
-    if has_git then table.insert(choices, "2. Create git worktree") end
-    if has_jj  then table.insert(choices, (has_git and "3" or "2") .. ". Create jj workspace") end
+    if has_git then
+      table.insert(choices, "2. Create git worktree")
+    end
+    if has_jj then
+      table.insert(choices, (has_git and "3" or "2") .. ". Create jj workspace")
+    end
     table.insert(choices, "")
     table.insert(choices, "  <Esc>/q to cancel")
 
     local pick_buf = vim.api.nvim_create_buf(false, true)
-    vim.bo[pick_buf].buftype   = "nofile"
+    vim.bo[pick_buf].buftype = "nofile"
     vim.bo[pick_buf].bufhidden = "wipe"
     vim.api.nvim_buf_set_lines(pick_buf, 0, -1, false, choices)
     vim.bo[pick_buf].modifiable = false
@@ -501,23 +536,27 @@ function M.open_quests()
     local W2 = 40
     local H2 = #choices
     local pick_win = vim.api.nvim_open_win(pick_buf, true, {
-      relative   = "editor",
-      width      = W2,
-      height     = H2,
-      row        = math.floor((vim.o.lines - H2) / 2),
-      col        = math.floor((vim.o.columns - W2) / 2),
-      style      = "minimal",
-      border     = "rounded",
-      title      = "  Launch workspace  ",
-      title_pos  = "center",
-      zindex     = 75,
+      relative = "editor",
+      width = W2,
+      height = H2,
+      row = math.floor((vim.o.lines - H2) / 2),
+      col = math.floor((vim.o.columns - W2) / 2),
+      style = "minimal",
+      border = "rounded",
+      title = "  Launch workspace  ",
+      title_pos = "center",
+      zindex = 75,
     })
 
-    local function pick_close() vim.api.nvim_win_close(pick_win, true) end
+    local function pick_close()
+      vim.api.nvim_win_close(pick_win, true)
+    end
 
     local function launch(work_dir)
       local claude_args = { "claude" }
-      if flag ~= "" then table.insert(claude_args, "--plan") end
+      if flag ~= "" then
+        table.insert(claude_args, "--plan")
+      end
       table.insert(claude_args, prompt)
       close()
       vim.cmd("botright 20split")
@@ -543,7 +582,7 @@ function M.open_quests()
         pick_close()
         local slug = make_slug()
         local branch = "quest/" .. slug
-        local parent   = vim.fn.expand("~") .. "/quest-worktrees"
+        local parent = vim.fn.expand("~") .. "/quest-worktrees"
         local worktree = parent .. "/" .. slug
         local setup
         if vim.fn.isdirectory(worktree) == 1 then
@@ -571,7 +610,7 @@ function M.open_quests()
       vim.keymap.set("n", jj_key, function()
         pick_close()
         local slug = make_slug()
-        local parent  = vim.fn.expand("~") .. "/quest-worktrees"
+        local parent = vim.fn.expand("~") .. "/quest-worktrees"
         local workspace = parent .. "/" .. slug
         -- If workspace dir already exists, reuse it; otherwise create it
         local setup
@@ -594,14 +633,18 @@ function M.open_quests()
       end, popts)
     end
 
-    vim.keymap.set("n", "q",     pick_close, popts)
+    vim.keymap.set("n", "q", pick_close, popts)
     vim.keymap.set("n", "<Esc>", pick_close, popts)
   end
 
-  vim.keymap.set("n", "j",     function() move(1)  end, opts)
-  vim.keymap.set("n", "k",     function() move(-1) end, opts)
-  vim.keymap.set("n", "x",     execute_quest, opts)
-  vim.keymap.set("n", "q",     close, opts)
+  vim.keymap.set("n", "j", function()
+    move(1)
+  end, opts)
+  vim.keymap.set("n", "k", function()
+    move(-1)
+  end, opts)
+  vim.keymap.set("n", "x", execute_quest, opts)
+  vim.keymap.set("n", "q", close, opts)
   vim.keymap.set("n", "<Esc>", close, opts)
 end
 
@@ -611,13 +654,17 @@ local explain_augroup = vim.api.nvim_create_augroup("MetroscopeExplain", { clear
 local explain_mode_on = false
 
 local function explain_update()
-  if not explain_mode_on then return end
+  if not explain_mode_on then
+    return
+  end
 
   local file = vim.fn.expand("%:.")
   local line = vim.fn.line(".")
 
   -- On non-file buffers (e.g. the float itself), do nothing
-  if file == "" or vim.bo.buftype ~= "" then return end
+  if file == "" or vim.bo.buftype ~= "" then
+    return
+  end
 
   local map = fetch(config.server .. "/map?file=" .. vim.uri_encode(file) .. "&line=" .. line)
   local station_id = map and type(map.focused_station) == "string" and map.focused_station
@@ -629,14 +676,18 @@ local function explain_update()
   end
 
   -- Same station already shown — skip the fetch
-  if info_mod.explain_station_id == station_id then return end
+  if info_mod.explain_station_id == station_id then
+    return
+  end
 
   local station_name = station_id:match("::([^:]+)$") or station_id
   info_mod.open_explain_float(station_id, station_name)
 end
 
 function M.explain_off()
-  if not explain_mode_on then return end
+  if not explain_mode_on then
+    return
+  end
   explain_mode_on = false
   vim.api.nvim_clear_autocmds({ group = explain_augroup })
   info_mod.close_explain()
@@ -649,8 +700,8 @@ function M.peek()
   else
     explain_mode_on = true
     vim.api.nvim_create_autocmd("CursorMoved", {
-      group    = explain_augroup,
-      pattern  = "*",
+      group = explain_augroup,
+      pattern = "*",
       callback = explain_update,
     })
     explain_update()
@@ -660,11 +711,21 @@ end
 
 function M.setup(opts)
   opts = opts or {}
-  if opts.server      then config.server      = opts.server      end
-  if opts.serena_dir  then config.serena_dir  = opts.serena_dir  end
-  if opts.module_info then config.module_info = opts.module_info end
-  if opts.prompts     then config.prompts     = opts.prompts     end
-  if opts.background_dim_on_explain ~= nil then config.background_dim_on_explain = opts.background_dim_on_explain end
+  if opts.server then
+    config.server = opts.server
+  end
+  if opts.serena_dir then
+    config.serena_dir = opts.serena_dir
+  end
+  if opts.module_info then
+    config.module_info = opts.module_info
+  end
+  if opts.prompts then
+    config.prompts = opts.prompts
+  end
+  if opts.background_dim_on_explain ~= nil then
+    config.background_dim_on_explain = opts.background_dim_on_explain
+  end
   if opts.promptline then
     local ok, pl = pcall(require, "promptline")
     if ok then
@@ -672,9 +733,9 @@ function M.setup(opts)
     end
   end
   local leader = opts.leader or "<leader>m"
-  vim.keymap.set("n", leader .. "s", M.open,          { desc = "Metroscope: open map" })
+  vim.keymap.set("n", leader .. "s", M.open, { desc = "Metroscope: open map" })
   vim.keymap.set("n", leader .. "l", M.open_stations, { desc = "Metroscope: open station list for current file" })
-  vim.keymap.set("n", leader .. "q", M.open_quests,   { desc = "Metroscope: show architectural quests" })
+  vim.keymap.set("n", leader .. "q", M.open_quests, { desc = "Metroscope: show architectural quests" })
   vim.keymap.set("n", leader .. "e", function()
     local url = config.server .. "/export/svg"
     local open_cmd = vim.fn.has("mac") == 1 and "open" or "xdg-open"
