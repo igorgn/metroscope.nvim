@@ -5,6 +5,7 @@ local backend = require("promptline.backend")
 local replace = require("promptline.replace")
 local fork = require("promptline.fork")
 local metroscope = require("promptline.metroscope")
+local session = require("promptline.session")
 
 M.config = {
   backend = "claude_cli", -- "claude_cli" | "anthropic_api" | "copilot_chat"
@@ -25,12 +26,21 @@ M.config = {
     { label = "Improve", prompt = "Improve this", mode = "edit" },
     { label = "Explain", prompt = "Explain what this code does clearly", mode = "explain" },
   },
+  session = {
+    keymap        = "<C-/>",      -- trigger in normal mode
+    reset_keymap  = "<leader>sr", -- clear history + virtual text
+    edit_prefix   = "-- DO:",     -- activates edit mode (replaces code below comment)
+    plan_path     = "PLAN.md",    -- loaded once per session as system prompt
+    context_lines = 10,           -- lines above/below cursor included as code context
+  },
 }
 
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
   vim.api.nvim_set_hl(0, "PromptlineDim", { bg = "#000000", fg = "#000000" })
+
+  session.setup(M.config)
 
   vim.keymap.set("v", M.config.keymap, function()
     M.trigger()

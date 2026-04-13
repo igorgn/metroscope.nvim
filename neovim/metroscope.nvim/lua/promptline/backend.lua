@@ -58,8 +58,19 @@ local function build_prompt(config, selection, user_prompt, diagnostics, metro_c
   return prompt
 end
 
-function M.run_claude_cli(config, selection, user_prompt, diagnostics, metro_context, on_done)
-  local prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
+function M.run_claude_cli(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
+  local prompt
+
+  if messages then
+    -- Serialize history as flat transcript prefix
+    local turns = {}
+    for _, m in ipairs(messages) do
+      table.insert(turns, m.role:upper() .. ": " .. m.content)
+    end
+    prompt = table.concat(turns, "\n\n")
+  else
+    prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
+  end
 
   local cmd = {
     "claude",
@@ -73,22 +84,36 @@ function M.run_claude_cli(config, selection, user_prompt, diagnostics, metro_con
   run_async(cmd, on_done)
 end
 
-function M.run_anthropic_api(config, selection, user_prompt, diagnostics, metro_context, on_done)
+function M.run_anthropic_api(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
   local api_key = config.api_key or vim.env.ANTHROPIC_API_KEY
   if not api_key then
     on_done(nil, "ANTHROPIC_API_KEY not set")
     return
   end
 
-  local prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
+  local request_body
+  if messages then
+    -- Multi-turn path: use history as messages, optional system prompt from PLAN.md
+    request_body = {
+      model = config.model,
+      max_tokens = config.max_tokens,
+      messages = messages,
+    }
+    if config.session_system_prompt then
+      request_body.system = config.session_system_prompt
+    end
+  else
+    local prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
+    request_body = {
+      model = config.model,
+      max_tokens = config.max_tokens,
+      messages = {
+        { role = "user", content = prompt },
+      },
+    }
+  end
 
-  local body = vim.fn.json_encode({
-    model = config.model,
-    max_tokens = config.max_tokens,
-    messages = {
-      { role = "user", content = prompt },
-    },
-  })
+  local body = vim.fn.json_encode(request_body)
 
   local tmpfile = vim.fn.tempname()
   local f = io.open(tmpfile, "w")
@@ -135,14 +160,23 @@ function M.run_anthropic_api(config, selection, user_prompt, diagnostics, metro_
   end)
 end
 
-function M.run_copilot_chat(config, selection, user_prompt, diagnostics, metro_context, on_done)
+function M.run_copilot_chat(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
   local ok, CopilotChat = pcall(require, "CopilotChat")
   if not ok then
     on_done(nil, "CopilotChat not available")
     return
   end
 
-  local full_prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
+  local full_prompt
+  if messages then
+    local turns = {}
+    for _, m in ipairs(messages) do
+      table.insert(turns, m.role:upper() .. ": " .. m.content)
+    end
+    full_prompt = table.concat(turns, "\n\n")
+  else
+    full_prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
+  end
 
   local ask_ok, ask_err = pcall(function()
     CopilotChat.ask(full_prompt, {
@@ -158,13 +192,13 @@ function M.run_copilot_chat(config, selection, user_prompt, diagnostics, metro_c
   end
 end
 
-function M.run(config, selection, user_prompt, diagnostics, metro_context, on_done)
+function M.run(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
   if config.backend == "anthropic_api" then
-    M.run_anthropic_api(config, selection, user_prompt, diagnostics, metro_context, on_done)
+    M.run_anthropic_api(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
   elseif config.backend == "copilot_chat" then
-    M.run_copilot_chat(config, selection, user_prompt, diagnostics, metro_context, on_done)
+    M.run_copilot_chat(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
   else
-    M.run_claude_cli(config, selection, user_prompt, diagnostics, metro_context, on_done)
+    M.run_claude_cli(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
   end
 end
 
