@@ -8,11 +8,11 @@ local metroscope = require("promptline.metroscope")
 local session = require("promptline.session")
 
 M.config = {
-  backend = "claude_cli", -- "claude_cli" | "anthropic_api" | "copilot_chat"
-  model = "claude-haiku-4-5",
+  backend = "copilot_chat", -- "claude_cli" | "anthropic_api" | "copilot_chat"
+  model = "auto",
   max_tokens = 8096,
   api_key = nil,
-  default_prompt = "Improve this",
+  default_prompt = "Help me with this",
   default_mode = "edit", -- "edit" | "explain" | "chat"
   system_prompt = "You are a precise code and text editor. When given text and an instruction, you apply the instruction and return only the edited result.",
   keymap = "<leader>p",
@@ -20,7 +20,6 @@ M.config = {
   format_on_apply = true,
   presets = {
     { label = "Fix",     prompt = "Fix the issues in this code",         mode = "edit" },
-    { label = "Improve", prompt = "Improve this",                        mode = "edit" },
     { label = "Explain", prompt = "Explain what this code does clearly", mode = "explain" },
     {
       label = "Tutor",
