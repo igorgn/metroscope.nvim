@@ -13,25 +13,37 @@ M.config = {
   max_tokens = 8096,
   api_key = nil,
   default_prompt = "Improve this",
-  default_mode = "edit", -- "edit" | "explain"
+  default_mode = "edit", -- "edit" | "explain" | "chat"
   system_prompt = "You are a precise code and text editor. When given text and an instruction, you apply the instruction and return only the edited result.",
   keymap = "<leader>p",
   float_width = 60,
   format_on_apply = true,
-  -- Presets are modes cycled with <C-n>/<C-p>.
-  -- The selected preset's prompt is used when the input is left empty.
-  -- Typing in the input overrides the preset prompt entirely.
   presets = {
-    { label = "Fix", prompt = "Fix the issues in this code", mode = "edit" },
-    { label = "Improve", prompt = "Improve this", mode = "edit" },
+    { label = "Fix",     prompt = "Fix the issues in this code",         mode = "edit" },
+    { label = "Improve", prompt = "Improve this",                        mode = "edit" },
     { label = "Explain", prompt = "Explain what this code does clearly", mode = "explain" },
+    {
+      label = "Tutor",
+      prompt = "Walk me through this step by step",
+      mode = "chat",
+      system_prompt = "You are a patient programming tutor. Explain concepts clearly, use examples, and check for understanding.",
+    },
+    {
+      label = "Critic",
+      prompt = "What are the weaknesses here?",
+      mode = "chat",
+      system_prompt = "You are a rigorous code reviewer. Point out bugs, design problems, and missed edge cases without sugarcoating.",
+    },
+    {
+      label = "Finish",
+      prompt = "Complete the implementation",
+      mode = "chat",
+      system_prompt = "You are a code completion assistant. Given partial code, complete it following the existing style and conventions. Return only the completed code, no commentary.",
+    },
   },
   session = {
-    keymap        = "<C-/>",      -- trigger in normal mode
-    reset_keymap  = "<leader>sr", -- clear history + virtual text
-    edit_prefix   = "-- DO:",     -- activates edit mode (replaces code below comment)
-    plan_path     = "PLAN.md",    -- loaded once per session as system prompt
-    context_lines = 10,           -- lines above/below cursor included as code context
+    reset_keymap  = "<leader>sr",
+    context_lines = 10,
   },
 }
 
@@ -40,16 +52,20 @@ function M.setup(opts)
 
   vim.api.nvim_set_hl(0, "PromptlineDim", { bg = "#000000", fg = "#000000" })
 
-  session.setup(M.config)
-
   vim.keymap.set("v", M.config.keymap, function()
     M.trigger()
   end, { desc = "Promptline: edit selection with AI" })
+
+  vim.keymap.set("n", M.config.keymap, function()
+    M.trigger()
+  end, { desc = "Promptline: open at cursor" })
 
   local fork_keymap = (opts and opts.fork_keymap) or "<leader>f"
   vim.keymap.set("n", fork_keymap, function()
     fork.trigger(M.config)
   end, { desc = "Promptline: resolve TODO fork under cursor" })
+
+  session.setup(M.config)
 end
 
 local function get_visual_selection()
@@ -88,31 +104,71 @@ local function get_visual_selection()
     text = text,
     diagnostics = #diag_lines > 0 and table.concat(diag_lines, "\n") or nil,
     metro_context = metro_context,
+    is_visual = true,
+  }
+end
+
+local function get_cursor_context()
+  local buf = vim.api.nvim_get_current_buf()
+  local row = vim.api.nvim_win_get_cursor(0)[1] -- 1-based
+  local n = M.config.session.context_lines
+  local start_line = math.max(1, row - n)
+  local end_line = math.min(vim.api.nvim_buf_line_count(buf), row + n)
+  local lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line, false)
+
+  local diag_lines = {}
+  for _, d in ipairs(vim.diagnostic.get(buf)) do
+    local dline = d.lnum + 1
+    if dline >= start_line and dline <= end_line then
+      local sev = vim.diagnostic.severity[d.severity] or "HINT"
+      table.insert(diag_lines, string.format("  line %d [%s]: %s", dline, sev, d.message))
+    end
+  end
+
+  return {
+    buf = buf,
+    -- stub selection fields so replace path doesn't crash if somehow reached
+    start_line = row,
+    start_col = 0,
+    end_line = row,
+    end_col = 0,
+    text = table.concat(lines, "\n"),
+    diagnostics = #diag_lines > 0 and table.concat(diag_lines, "\n") or nil,
+    metro_context = metroscope.fetch_context(buf, row),
+    is_visual = false,
   }
 end
 
 function M.trigger()
-  local sel = get_visual_selection()
+  local vmode = vim.api.nvim_get_mode().mode
+  local ctx
+  if vmode == "v" or vmode == "V" or vmode == "\22" then
+    ctx = get_visual_selection()
+  else
+    ctx = get_cursor_context()
+  end
 
-  if sel.text == "" then
+  if ctx.is_visual and ctx.text == "" then
     vim.notify("promptline: no text selected", vim.log.levels.WARN)
     return
   end
 
-  -- Highlight the selection while the float is open
+  -- Highlight the selection while the float is open (visual mode only)
   local hl_ns = vim.api.nvim_create_namespace("promptline_selection")
-  for line = sel.start_line - 1, sel.end_line - 1 do
-    local start_col = (line == sel.start_line - 1) and sel.start_col or 0
-    local line_len = #(vim.api.nvim_buf_get_lines(sel.buf, line, line + 1, false)[1] or "")
-    local end_col = (line == sel.end_line - 1) and math.min(sel.end_col, line_len) or line_len
-    vim.api.nvim_buf_set_extmark(sel.buf, hl_ns, line, start_col, {
-      end_row = line,
-      end_col = end_col,
-      hl_group = "Visual",
-    })
+  if ctx.is_visual then
+    for line = ctx.start_line - 1, ctx.end_line - 1 do
+      local start_col = (line == ctx.start_line - 1) and ctx.start_col or 0
+      local line_len = #(vim.api.nvim_buf_get_lines(ctx.buf, line, line + 1, false)[1] or "")
+      local end_col = (line == ctx.end_line - 1) and math.min(ctx.end_col, line_len) or line_len
+      vim.api.nvim_buf_set_extmark(ctx.buf, hl_ns, line, start_col, {
+        end_row = line,
+        end_col = end_col,
+        hl_group = "Visual",
+      })
+    end
   end
   local function clear_hl()
-    vim.api.nvim_buf_clear_namespace(sel.buf, hl_ns, 0, -1)
+    vim.api.nvim_buf_clear_namespace(ctx.buf, hl_ns, 0, -1)
   end
 
   local default_preset_idx = 1
@@ -133,12 +189,59 @@ function M.trigger()
     local preset = M.config.presets[submission.preset_idx]
     local mode = (preset and preset.mode) or M.config.default_mode
 
-    -- Typed text takes priority; fall back to selected preset's prompt, then default
     local user_prompt = submission.text
     if user_prompt == "" then
       user_prompt = (preset and preset.prompt) or M.config.default_prompt
     end
 
+    if mode == "chat" then
+      local sess = session.get(ctx.buf, preset.label)
+      if sess.pending then
+        vim.notify("promptline: request in progress", vim.log.levels.WARN)
+        ui.close_float(float_win)
+        clear_hl()
+        return
+      end
+      sess.pending = true
+
+      local cfg = vim.tbl_extend("force", M.config, {
+        system_prompt = (preset and preset.system_prompt) or M.config.system_prompt,
+      })
+
+      local turn = ctx.text .. "\n\nQuestion: " .. user_prompt
+      session.append_user(ctx.buf, preset.label, turn)
+      local history = session.get_history(ctx.buf, preset.label)
+
+      local stop_spinner = ui.show_working(float_win, float_buf, "thinking…")
+
+      backend.run(cfg, ctx.text, user_prompt, ctx.diagnostics, ctx.metro_context, function(result, err)
+        vim.schedule(function()
+          sess.pending = false
+          stop_spinner()
+          clear_hl()
+
+          if err then
+            ui.close_float(float_win)
+            vim.notify("promptline error: " .. err, vim.log.levels.ERROR)
+            return
+          end
+          if not result or result == "" then
+            ui.close_float(float_win)
+            vim.notify("promptline: empty response", vim.log.levels.WARN)
+            return
+          end
+
+          if vim.api.nvim_buf_is_valid(ctx.buf) then
+            session.append_assistant(ctx.buf, preset.label, result)
+            ui.show_explain(float_win, float_buf, result)
+          end
+        end)
+      end, history)
+
+      return
+    end
+
+    -- edit / explain modes
     local cfg = M.config
     if mode == "explain" then
       cfg = vim.tbl_extend("force", M.config, {
@@ -148,7 +251,7 @@ function M.trigger()
 
     local stop_spinner = ui.show_working(float_win, float_buf, "thinking…")
 
-    backend.run(cfg, sel.text, user_prompt, sel.diagnostics, sel.metro_context, function(result, err)
+    backend.run(cfg, ctx.text, user_prompt, ctx.diagnostics, ctx.metro_context, function(result, err)
       vim.schedule(function()
         stop_spinner()
         clear_hl()
@@ -169,13 +272,13 @@ function M.trigger()
           ui.show_explain(float_win, float_buf, result)
         else
           ui.close_float(float_win)
-          replace.replace_selection(sel.buf, sel.start_line, sel.start_col, sel.end_line, sel.end_col, result)
+          replace.replace_selection(ctx.buf, ctx.start_line, ctx.start_col, ctx.end_line, ctx.end_col, result)
 
           if M.config.format_on_apply then
-            vim.lsp.buf.format({ bufnr = sel.buf, async = false })
+            vim.lsp.buf.format({ bufnr = ctx.buf, async = false })
           end
 
-          vim.api.nvim_buf_call(sel.buf, function()
+          vim.api.nvim_buf_call(ctx.buf, function()
             vim.cmd("silent! write")
           end)
 

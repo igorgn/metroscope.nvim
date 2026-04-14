@@ -60,14 +60,13 @@ end
 
 function M.run_claude_cli(config, selection, user_prompt, diagnostics, metro_context, on_done, messages)
   local prompt
-
-  if messages then
+  if messages and #messages > 0 then
     -- Serialize history as flat transcript prefix
-    local turns = {}
-    for _, m in ipairs(messages) do
-      table.insert(turns, m.role:upper() .. ": " .. m.content)
+    local parts = {}
+    for _, msg in ipairs(messages) do
+      table.insert(parts, msg.role:upper() .. ": " .. msg.content)
     end
-    prompt = table.concat(turns, "\n\n")
+    prompt = table.concat(parts, "\n\n")
   else
     prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
   end
@@ -91,29 +90,28 @@ function M.run_anthropic_api(config, selection, user_prompt, diagnostics, metro_
     return
   end
 
-  local request_body
-  if messages then
-    -- Multi-turn path: use history as messages, optional system prompt from PLAN.md
-    request_body = {
+  local body
+  if messages and #messages > 0 then
+    -- Multi-turn path: pass full history, system prompt as top-level field
+    local req = {
       model = config.model,
       max_tokens = config.max_tokens,
       messages = messages,
     }
-    if config.session_system_prompt then
-      request_body.system = config.session_system_prompt
+    if config.system_prompt and config.system_prompt ~= "" then
+      req.system = config.system_prompt
     end
+    body = vim.fn.json_encode(req)
   else
     local prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
-    request_body = {
+    body = vim.fn.json_encode({
       model = config.model,
       max_tokens = config.max_tokens,
       messages = {
         { role = "user", content = prompt },
       },
-    }
+    })
   end
-
-  local body = vim.fn.json_encode(request_body)
 
   local tmpfile = vim.fn.tempname()
   local f = io.open(tmpfile, "w")
@@ -168,12 +166,12 @@ function M.run_copilot_chat(config, selection, user_prompt, diagnostics, metro_c
   end
 
   local full_prompt
-  if messages then
-    local turns = {}
-    for _, m in ipairs(messages) do
-      table.insert(turns, m.role:upper() .. ": " .. m.content)
+  if messages and #messages > 0 then
+    local parts = {}
+    for _, msg in ipairs(messages) do
+      table.insert(parts, msg.role:upper() .. ": " .. msg.content)
     end
-    full_prompt = table.concat(turns, "\n\n")
+    full_prompt = table.concat(parts, "\n\n")
   else
     full_prompt = build_prompt(config, selection, user_prompt, diagnostics, metro_context)
   end
